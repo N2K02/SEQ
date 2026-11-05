@@ -41,6 +41,28 @@ Java_com_n2k02_seq_audio_NativeDsp_nConfigure(JNIEnv* env, jobject, jlong handle
   } catch(const std::exception&) { return JNI_FALSE; }
 }
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_n2k02_seq_audio_NativeDsp_nConfigureFir(JNIEnv* env,jobject,jlong handle,
+    jfloatArray left,jfloatArray right) {
+  auto* p=reinterpret_cast<Processor*>(handle);
+  if(!p || !left || !right) return JNI_FALSE;
+  const jsize taps=env->GetArrayLength(left);
+  if(taps!=env->GetArrayLength(right) || taps>static_cast<jsize>(seq::MAX_FIR_TAPS)) return JNI_FALSE;
+  std::array<float,seq::MAX_FIR_TAPS> a{},b{};
+  env->GetFloatArrayRegion(left,0,taps,a.data());
+  env->GetFloatArrayRegion(right,0,taps,b.data());
+  if(env->ExceptionCheck()) return JNI_FALSE;
+  try { p->configureFir(a.data(),b.data(),static_cast<std::size_t>(taps));return JNI_TRUE; }
+  catch(const std::exception&) {return JNI_FALSE;}
+}
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_n2k02_seq_audio_NativeDsp_nConfigurePeakGuard(JNIEnv*,jobject,jlong handle,
+    jboolean enabled,jdouble ceiling) {
+  auto* p=reinterpret_cast<Processor*>(handle);
+  if(!p) return JNI_FALSE;
+  try {p->configurePeakGuard(enabled!=JNI_FALSE,ceiling);return JNI_TRUE;}
+  catch(const std::exception&) {return JNI_FALSE;}
+}
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_n2k02_seq_audio_NativeDsp_nProcess(JNIEnv* env, jobject,
     jlong handle, jfloatArray buffer, jint frames) {
   auto* p=reinterpret_cast<Processor*>(handle);

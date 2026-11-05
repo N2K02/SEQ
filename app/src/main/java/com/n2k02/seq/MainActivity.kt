@@ -57,7 +57,7 @@ private val background: Color @Composable get() = MaterialTheme.colorScheme.back
 private val panel: Color @Composable get() = MaterialTheme.colorScheme.surfaceContainerLow
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
-  HOME("Home"), SETTINGS("Settings"), EQ("Equalizer"), PLAYER("Music Library"), DEVICES("Device Profiles"),
+  HOME("Home"), SETTINGS("Settings"), EQ("Equalizer"), FIDELITY("Advanced Audio"), PLAYER("Music Library"), DEVICES("Device Profiles"),
   AUTO("Android Auto"), AI("AI Assistant"), DIAGNOSTICS("Diagnostics"),
   LOGS("Logs"), UPDATES("Updates"), ABOUT("About")
 }
@@ -82,6 +82,8 @@ class MainActivity : ComponentActivity() {
       val nativeStatus by SeqRuntime.mediaDsp.collectAsState()
       val musicStore = remember { LocalMusicLibrary(this@MainActivity) }
       val headphoneStore = remember { HeadphoneProfileStore(this@MainActivity) }
+      val impulseStore = remember { MeasuredImpulseStore(this@MainActivity) }
+      var impulse by remember { mutableStateOf(impulseStore.read()) }
       var music by remember { mutableStateOf(musicStore.items()) }
       var headphones by remember { mutableStateOf(headphoneStore.read()) }
       var importMessage by remember { mutableStateOf("") }
@@ -94,6 +96,21 @@ class MainActivity : ComponentActivity() {
             music = musicStore.add(files)
             importMessage = "Music added: " + files.size
           }.onFailure { importMessage = "Import failed: " + (it.message ?: it.javaClass.simpleName) }
+        }
+      }
+      val pickImpulse = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if(uri!=null) {
+          runCatching {
+            val name=contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { c ->
+              if(c.moveToFirst()) c.getString(0) else null
+            } ?: "Measured impulse response"
+            val response=contentResolver.openInputStream(uri)?.use { stream ->
+              MeasuredImpulseImport.parse(name,stream)
+            } ?: error("Unable to read impulse response")
+            impulseStore.save(response)
+            impulse=response
+            importMessage="FIR imported: "+response.name
+          }.onFailure { importMessage="IR import failed: "+(it.message?:it.javaClass.simpleName) }
         }
       }
       val pickCorrection = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -221,6 +238,7 @@ class MainActivity : ComponentActivity() {
               }
               Page.SETTINGS -> {
                 MenuRow("Equalizer", "Precision tone controls", Icons.Rounded.Tune) { page = Page.EQ }
+                MenuRow("Advanced Audio", "FIR • peak guard • USB direct", Icons.Rounded.GraphicEq) { page = Page.FIDELITY }
                 MenuRow("Device Profiles", "Headphones and output routes", Icons.Rounded.Headphones) { page = Page.DEVICES }
                 MenuRow("Music Library", "Lossless player • Android Auto", Icons.Rounded.PlayCircle) { page = Page.PLAYER }
                 MenuRow("Android Auto", "Car profile and compatibility", Icons.Rounded.DirectionsCar) { page = Page.AUTO }
@@ -305,6 +323,49 @@ class MainActivity : ComponentActivity() {
                 OutlinedButton(onClick={
                   stopService(SeqReferencePlayerService.intent(this@MainActivity,SeqReferencePlayerService.STOP))
                 }) { Text("Stop reference playback") }
+              }
+              Page.FIDELITY -> {
+                Text("Optional measured processing",style=MaterialTheme.typography.titleMedium)
+                Text("Reference remains neutral. Enable only the processing your equipment needs.",
+                  color=quiet,style=MaterialTheme.typography.bodySmall)
+                SurfaceCard {
+                  ToggleRow("4× intersample peak guard",settings.peakGuard) {
+                    update(settings.copy(peakGuard=it))
+                  }
+                  Text("Experimental interpolated peak control on SEQ-owned PCM. Not a certified ITU true-peak limiter.",
+                    color=quiet,style=MaterialTheme.typography.bodySmall)
+                  if(settings.peakGuard) {
+                    Text("Ceiling: "+String.format(Locale.US,"%.1f dB",settings.peakCeilingDb))
+                    Slider(value=settings.peakCeilingDb,valueRange=-6f..-0.5f,
+                      onValueChange={ update(settings.copy(peakCeilingDb=it)) })
+                  }
+                }
+                SurfaceCard {
+                  ToggleRow("Measured FIR convolution",settings.convolution) {
+                    update(settings.copy(convolution=it))
+                  }
+                  Text(impulse?.let { it.name+" • "+it.sampleRate+" Hz • "+it.left.size+" taps" }
+                    ?: "No measured response imported",color=quiet,style=MaterialTheme.typography.bodySmall)
+                  Text("Import a measured stereo 16-bit PCM WAV response, 256 taps maximum. Sample rate must match the source; CPU usage rises when enabled.",
+                    color=quiet,style=MaterialTheme.typography.bodySmall)
+                  Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick={pickImpulse.launch(arrayOf("audio/wav","audio/x-wav","audio/*"))}) {
+                      Text("Import IR")
+                    }
+                    OutlinedButton(onClick={impulseStore.clear();impulse=null
+                      update(settings.copy(convolution=false))}) { Text("Clear") }
+                  }
+                }
+                SurfaceCard {
+                  ToggleRow("USB direct PCM16 WAV",settings.usbDirect) {
+                    update(settings.copy(usbDirect=it))
+                  }
+                  Text("Android 14+ only. Requires Pure profile and a compatible USB DAC with a BIT_PERFECT mixer mode. No EQ, FIR, peak guard or conversion is applied.",
+                    color=quiet,style=MaterialTheme.typography.bodySmall)
+                  Text("Open a WAV with Reference Player controls under Music Library. If hardware support or routing cannot be verified, playback stops instead of silently falling back.",
+                    color=quiet,style=MaterialTheme.typography.bodySmall)
+                }
+                if(importMessage.isNotBlank()) Text(importMessage,color=quiet)
               }
               Page.DEVICES -> {
                 Text("Profiles are stored locally; system EQ support depends on the source music app.", color = quiet)
@@ -410,7 +471,7 @@ class MainActivity : ComponentActivity() {
                 )
               }
               Page.ABOUT -> {
-                Text("SEQ • high-fidelity sound", fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text("SEQ • high-fidelity sound", style=MaterialTheme.typography.headlineSmall, fontWeight=FontWeight.Bold)
                 Text("Accuracy over loudness. Avoid unnecessary compression and processing.", color = quiet)
                 Text("External app effects are cooperative. ADB is diagnostics-only. No automatic DSP on unrelated or protected audio.", color = quiet)
               }

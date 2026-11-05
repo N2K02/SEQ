@@ -16,7 +16,11 @@ class SettingsStore(context: Context) {
       carManual = prefs.getBoolean("car_manual", false),
       carDeviceName = prefs.getString("car_device", "") ?: "",
       aiEnabled = prefs.getBoolean("ai", false),
-      headphoneCorrection = prefs.getBoolean("headphone_correction", false)
+      headphoneCorrection = prefs.getBoolean("headphone_correction", false),
+      convolution = prefs.getBoolean("convolution", false),
+      peakGuard = prefs.getBoolean("peak_guard", false),
+      peakCeilingDb = prefs.getFloat("peak_ceiling", -1.0f).coerceIn(-12f, -0.1f),
+      usbDirect = prefs.getBoolean("usb_direct", false)
     )
   }
   fun write(s: EngineSettings) {
@@ -27,6 +31,9 @@ class SettingsStore(context: Context) {
       .putFloat("car_treble", s.carTone.treble)
       .putBoolean("car_auto", s.automaticCarProfile).putBoolean("car_manual", s.carManual)
       .putString("car_device", s.carDeviceName.take(100))
-      .putBoolean("ai", s.aiEnabled).putBoolean("headphone_correction", s.headphoneCorrection).apply()
+      .putBoolean("ai", s.aiEnabled).putBoolean("headphone_correction", s.headphoneCorrection)
+      .putBoolean("convolution",s.convolution).putBoolean("peak_guard",s.peakGuard)
+      .putFloat("peak_ceiling",s.peakCeilingDb.coerceIn(-12f,-0.1f))
+      .putBoolean("usb_direct",s.usbDirect).apply()
   }
 }

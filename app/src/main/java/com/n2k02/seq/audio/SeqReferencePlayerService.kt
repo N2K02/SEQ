@@ -17,6 +17,7 @@ import com.n2k02.seq.MainActivity
 import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.SettingsStore
 import com.n2k02.seq.model.HeadphoneProfileStore
+import com.n2k02.seq.model.MeasuredImpulseStore
 import kotlinx.coroutines.*
 import java.io.InputStream
 
@@ -107,6 +108,11 @@ class SeqReferencePlayerService : Service() {
     contentResolver.openInputStream(uri)?.use { stream ->
       val fmt=WaveReader.parse(stream)
       val setting=SettingsStore(this).read()
+      if(setting.usbDirect) {
+        require(setting.profile==AudioProfile.PURE) { "USB direct requires Pure profile" }
+        UsbDirectOutput(audio,attributes).play(stream,fmt)
+        return
+      }
       val tone=setting.activeTone(carProfile())
       val min=AudioTrack.getMinBufferSize(fmt.sampleRate,AudioFormat.CHANNEL_OUT_STEREO,AudioFormat.ENCODING_PCM_FLOAT)
       require(min>0) { "Output sample rate unsupported" }
@@ -118,7 +124,12 @@ class SeqReferencePlayerService : Service() {
       try {
         val correction = if (setting.headphoneCorrection && !carProfile() &&
             setting.profile != AudioProfile.PURE) HeadphoneProfileStore(this).read() else null
-        NativeDsp(fmt.sampleRate,tone,setting.profile!=AudioProfile.PURE,correction).use { dsp ->
+        val impulse=if(setting.convolution && !carProfile() &&
+          setting.profile!=AudioProfile.PURE)
+          MeasuredImpulseStore(this).read()?.takeIf { it.sampleRate==fmt.sampleRate } else null
+        NativeDsp(fmt.sampleRate,tone,setting.profile!=AudioProfile.PURE,correction,impulse,
+          setting.peakGuard && setting.profile!=AudioProfile.PURE,
+          setting.peakCeilingDb.toDouble()).use { dsp ->
           val bytes=ByteArray(8192)
           val pcm=FloatArray(4096)
           var remaining=fmt.dataBytes

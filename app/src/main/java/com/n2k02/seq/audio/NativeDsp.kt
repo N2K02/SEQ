@@ -6,7 +6,10 @@ import java.io.Closeable
 /** 16 native filter slots: 3 tone bands plus 12 imported measured filters. */
 class NativeDsp(
   sampleRate: Int, tone: Tone, enabled: Boolean,
-  preset: HeadphoneProfile? = null
+  preset: HeadphoneProfile? = null,
+  impulse: MeasuredImpulse? = null,
+  peakGuard: Boolean = false,
+  peakCeilingDb: Double = -1.0
 ) : Closeable {
   companion object { init { System.loadLibrary("seq_jni") } }
   private var handle = nCreate()
@@ -26,7 +29,10 @@ class NativeDsp(
         else -> f.q
       }
     }
-    if(handle==0L || !nConfigure(handle,sampleRate,spec,preset?.preampDb ?: 0.0,enabled)) {
+    if(handle==0L || !nConfigure(handle,sampleRate,spec,preset?.preampDb ?: 0.0,enabled) ||
+      (impulse!=null && (impulse.sampleRate!=sampleRate ||
+        !nConfigureFir(handle,impulse.left,impulse.right))) ||
+      !nConfigurePeakGuard(handle,peakGuard,peakCeilingDb)) {
       close()
       throw IllegalArgumentException("Native DSP configuration rejected")
     }
@@ -40,6 +46,8 @@ class NativeDsp(
   }
   private external fun nCreate():Long
   private external fun nConfigure(handle:Long, rate:Int, filters:DoubleArray, preamp:Double, enabled:Boolean):Boolean
+  private external fun nConfigureFir(handle:Long,left:FloatArray,right:FloatArray):Boolean
+  private external fun nConfigurePeakGuard(handle:Long,enabled:Boolean,ceiling:Double):Boolean
   private external fun nProcess(handle:Long, samples:FloatArray, frames:Int):Boolean
   private external fun nDestroy(handle:Long)
 }

@@ -17,7 +17,11 @@ data class EngineSettings(
   val carManual: Boolean = false,
   val carDeviceName: String = "",
   val aiEnabled: Boolean = false,
-  val headphoneCorrection: Boolean = false
+  val headphoneCorrection: Boolean = false,
+  val convolution: Boolean = false,
+  val peakGuard: Boolean = false,
+  val peakCeilingDb: Float = -1.0f,
+  val usbDirect: Boolean = false
 ) {
   fun activeTone(car: Boolean): Tone = when (profile) {
     AudioProfile.PURE -> Tone()

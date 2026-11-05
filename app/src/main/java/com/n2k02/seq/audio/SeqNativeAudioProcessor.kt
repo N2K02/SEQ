@@ -8,6 +8,7 @@ import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.HeadphoneProfileStore
+import com.n2k02.seq.model.MeasuredImpulseStore
 import com.n2k02.seq.model.SettingsStore
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -47,9 +48,17 @@ class SeqNativeAudioProcessor(private val context: Context) : BaseAudioProcessor
     val corr=if (settings.headphoneCorrection && !car &&
       settings.profile!=AudioProfile.PURE) HeadphoneProfileStore(context).read() else null
     if (settings.profile!=AudioProfile.PURE) {
-      dsp=NativeDsp(inputAudioFormat.sampleRate,settings.activeTone(car),true,corr)
+      val impulse = if(settings.convolution && !car)
+        MeasuredImpulseStore(context).read()?.takeIf { it.sampleRate == inputAudioFormat.sampleRate } else null
+      dsp=NativeDsp(inputAudioFormat.sampleRate,settings.activeTone(car),true,corr,
+        impulse,settings.peakGuard,settings.peakCeilingDb.toDouble())
     }
-    SeqRuntime.mediaDsp.value=if(dsp!=null) "Native EQ active" else "Pure bypass"
+    SeqRuntime.mediaDsp.value=when {
+      dsp==null -> "Pure bypass"
+      settings.convolution -> "Native EQ • FIR optional (sample rate matched only)"
+      settings.peakGuard -> "Native EQ • peak guard"
+      else -> "Native EQ active"
+    }
     SeqRuntime.log(if(dsp!=null) "Native Media3 PCM DSP active" else "Media3 PCM Pure bypass")
   }
   override fun onReset() {

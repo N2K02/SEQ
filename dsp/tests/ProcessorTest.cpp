@@ -64,5 +64,30 @@ int main() {
     assert(sum<100.0);
     assert(std::abs(stable.responseDb(1200.0,rate)-10.0)<0.2);
   }
+  std::array<float,2> impulseL{1.0f,0.0f},impulseR{1.0f,0.0f};
+  p.configure(empty,48000,true);
+  p.configureFir(impulseL.data(),impulseR.data(),2);
+  assert(p.firTaps()==2);
+  float raw[6]{.1f,-.1f,.2f,-.2f,.3f,-.3f};
+  p.process(raw,3);
+  assert(std::abs(raw[0]-.1f)<1e-5f && std::abs(raw[3]+.2f)<1e-5f);
+  const float half[2]{.5f,.5f};
+  p.configure(empty,48000,true);
+  p.configureFir(half,half,2);
+  float impulse[8]{1.f,1.f,0,0,0,0,0,0};
+  p.process(impulse,4);
+  assert(std::abs(impulse[0]-.5f)<1e-5f);
+  assert(std::abs(impulse[2]-.5f)<1e-5f);
+  p.configure(empty,48000,true);
+  p.configurePeakGuard(true,-1.0);
+  std::vector<float> hot(4096,1.0f);
+  p.process(hot.data(),hot.size()/2);
+  for(float v:hot) assert(v<0.9f && v>=0.0f);
+  assert(p.observedPeak()>=1.0);
+  p.configure(empty,48000,false);
+  p.configurePeakGuard(true,-1.0);
+  float still[2]{1.f,-1.f};
+  p.process(still,1);
+  assert(still[0]==1.f && still[1]==-1.f); // Pure is identity.
   std::cout << "SEQ reference DSP: all tests passed\n";
 }
