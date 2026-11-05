@@ -110,7 +110,9 @@ class SeqReferencePlayerService : Service() {
       val setting=SettingsStore(this).read()
       if(setting.usbDirect) {
         require(setting.profile==AudioProfile.PURE) { "USB direct requires Pure profile" }
-        UsbDirectOutput(audio,attributes).play(stream,fmt)
+        check(android.os.Build.VERSION.SDK_INT>=34) { "USB Direct requires Android 14+" }
+        val playbackJob=currentCoroutineContext()[Job]
+        UsbDirectOutput(audio,attributes).play(stream,fmt) { playbackJob?.isActive==true }
         return
       }
       val tone=setting.activeTone(carProfile())

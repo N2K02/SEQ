@@ -20,7 +20,7 @@ class UsbDirectOutput(private val audio:AudioManager,private val attributes:Audi
       mixer.format.sampleRate==format.sampleRate &&
       mixer.format.channelMask==format.channelMask
   }
-  fun play(stream:InputStream,fmt:WaveInfo) {
+  fun play(stream:InputStream,fmt:WaveInfo,continuePlayback:()->Boolean) {
     require(Build.VERSION.SDK_INT>=34) { "USB bit-perfect requires Android 14+" }
     val format=AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
       .setSampleRate(fmt.sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build()
@@ -46,7 +46,7 @@ class UsbDirectOutput(private val audio:AudioManager,private val attributes:Audi
         SeqRuntime.player.value="USB direct PCM16 • "+fmt.sampleRate+" Hz • no SEQ processing"
         val bytes=ByteArray(8192)
         var left=fmt.dataBytes
-        while(left>0 && !Thread.currentThread().isInterrupted) {
+        while(left>0 && continuePlayback()) {
           val max=minOf(bytes.size.toLong(),left).toInt()
           var read=0
           while(read<max) {
@@ -56,12 +56,12 @@ class UsbDirectOutput(private val audio:AudioManager,private val attributes:Audi
           }
           left-=read
           var written=0
-          while(written<read) {
+          while(written<read && continuePlayback()) {
             val n=track.write(bytes,written,read-written,AudioTrack.WRITE_BLOCKING)
             require(n>0) { "USB direct write failed" }
             written+=n
           }
-          check(track.routedDevice?.id==device.id) { "USB DAC disconnected or routing changed" }
+          if(continuePlayback()) check(track.routedDevice?.id==device.id) { "USB DAC disconnected or routing changed" }
         }
       } finally { runCatching{track.pause();track.flush();track.release()} }
     } finally {
