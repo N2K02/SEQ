@@ -52,5 +52,17 @@ int main() {
   shelf.configure(Band{FilterType::HighShelf,3000,-2.0,0.707,true},48000);
   assert(shelf.responseDb(15000,48000)<-1.5);
 
+  for (const double rate : {44100.0,48000.0,96000.0}) {
+    Biquad stable;
+    stable.configure(Band{FilterType::Peak,1200.0,10.0,6.0,true},rate);
+    double sum=0;
+    for(int i=0;i<25000;i++) {
+      const float v=stable.process(i==0?1.0f:0.0f);
+      assert(std::isfinite(v));
+      sum+=std::abs(v);
+    }
+    assert(sum<100.0);
+    assert(std::abs(stable.responseDb(1200.0,rate)-10.0)<0.2);
+  }
   std::cout << "SEQ reference DSP: all tests passed\n";
 }

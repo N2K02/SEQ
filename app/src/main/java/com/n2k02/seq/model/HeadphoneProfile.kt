@@ -26,7 +26,7 @@ data class HeadphoneProfile(
 
 /** Import the commonly exported AutoEq / Equalizer APO parametric text format. */
 object AutoEqImport {
-  private val preamp = Regex("""^\s*Preamp\s*:\s*(-?\d+(?:\.\d+)?)\s*dB\s*$""", RegexOption.IGNORE_CASE)
+  private val preamp = Regex("""^\s*Preamp\s*:\s*([+-]?\d+(?:\.\d+)?)\s*dB\s*$""", RegexOption.IGNORE_CASE)
   private val filter = Regex("""^\s*Filter\s+\d+\s*:\s*(ON|OFF)\s+(PK|LS|LSC|HS|HSC)\s+Fc\s+(\d+(?:\.\d+)?)\s*Hz\s+Gain\s+(-?\d+(?:\.\d+)?)\s*dB\s+Q\s+(\d+(?:\.\d+)?).*$""", RegexOption.IGNORE_CASE)
   fun parse(name: String, content: String): HeadphoneProfile {
     require(content.length <= 50000) { "Correction file is too large" }
