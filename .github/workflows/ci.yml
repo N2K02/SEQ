@@ -29,9 +29,9 @@ jobs:
           packages: 'platform-tools'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.13'
+          gradle-version: '9.6.0'
       - name: Install Android SDK
-        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+        run: sdkmanager --install "platforms;android-37" "build-tools;37.0.0"
       - name: Verify private dependency credential
         run: test -n "$N2K02_PACKAGES_TOKEN" || { echo "::error::N2K02_PACKAGES_TOKEN secret is missing. Configure private GitHub Packages read token in SEQ repository Actions secrets."; exit 1; }
       - name: Compile and run JVM unit tests

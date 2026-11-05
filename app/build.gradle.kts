@@ -1,11 +1,10 @@
 plugins {
   id("com.android.application")
-  id("org.jetbrains.kotlin.android")
   id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
   namespace = "com.n2k02.seq"
-  compileSdk = 36
+  compileSdk = 37
   defaultConfig {
     applicationId = "com.n2k02.seq"
     minSdk = 29
@@ -19,7 +18,6 @@ android {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
   }
-  kotlinOptions { jvmTarget = "17" }
   ndkVersion = "27.3.13750724"
   defaultConfig {
     ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
