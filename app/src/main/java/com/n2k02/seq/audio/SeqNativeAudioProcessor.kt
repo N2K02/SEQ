@@ -1,6 +1,7 @@
 package com.n2k02.seq.audio
 
 import android.content.Context
+import android.media.AudioManager
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
@@ -24,24 +25,37 @@ class SeqNativeAudioProcessor(private val context: Context) : BaseAudioProcessor
   private val samples=FloatArray(4096)
 
   override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-    return if (inputAudioFormat.encoding==C.ENCODING_PCM_16BIT && inputAudioFormat.channelCount==2)
-      inputAudioFormat else AudioProcessor.AudioFormat.NOT_SET
+    return if (inputAudioFormat.encoding==C.ENCODING_PCM_16BIT && inputAudioFormat.channelCount==2) {
+      SeqRuntime.mediaDsp.value="PCM16 stereo • compatible"
+      inputAudioFormat
+    } else {
+      SeqRuntime.mediaDsp.value="Native EQ unavailable for decoded audio format"
+      AudioProcessor.AudioFormat.NOT_SET
+    }
   }
   override fun onFlush() {
     dsp?.close()
     dsp=null
     val settings=SettingsStore(context).read()
-    val car=settings.carManual // No unsupported guesses about current car route.
+    val audio=context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    val knownCarConnected=settings.automaticCarProfile && settings.carDeviceName.isNotBlank() &&
+      audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
+        it.productName?.toString()?.equals(settings.carDeviceName,ignoreCase=true)==true
+      }
+    val car=settings.carManual || knownCarConnected
+    // Connected output is not proof of active route; user may select car manually.
     val corr=if (settings.headphoneCorrection && !car &&
       settings.profile!=AudioProfile.PURE) HeadphoneProfileStore(context).read() else null
     if (settings.profile!=AudioProfile.PURE) {
       dsp=NativeDsp(inputAudioFormat.sampleRate,settings.activeTone(car),true,corr)
     }
+    SeqRuntime.mediaDsp.value=if(dsp!=null) "Native EQ active" else "Pure bypass"
     SeqRuntime.log(if(dsp!=null) "Native Media3 PCM DSP active" else "Media3 PCM Pure bypass")
   }
   override fun onReset() {
     dsp?.close()
     dsp=null
+    SeqRuntime.mediaDsp.value="Stopped"
   }
   override fun queueInput(inputBuffer: ByteBuffer) {
     val size=inputBuffer.remaining()

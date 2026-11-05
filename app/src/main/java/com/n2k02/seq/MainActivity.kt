@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
       val status by SeqRuntime.status.collectAsState()
       val playerStatus by SeqRuntime.player.collectAsState()
       val mediaStatus by SeqRuntime.media.collectAsState()
+      val nativeStatus by SeqRuntime.mediaDsp.collectAsState()
       val musicStore = remember { LocalMusicLibrary(this@MainActivity) }
       val headphoneStore = remember { HeadphoneProfileStore(this@MainActivity) }
       var music by remember { mutableStateOf(musicStore.items()) }
@@ -196,9 +197,10 @@ class MainActivity : ComponentActivity() {
                     Spacer(Modifier.width(12.dp))
                     Column {
                       Text("Signal Path", fontWeight = FontWeight.SemiBold)
-                      Text(if (status.effectAttached) "Platform EQ • " + status.sessions + " session(s)"
-                        else if (settings.profile == AudioProfile.PURE) "Pure bypass"
-                        else "No verified effect attachment", color = quiet, fontSize = 12.sp)
+                      Text(if(nativeStatus=="Native EQ active") "SEQ native processing • active"
+                        else if(status.effectAttached) "Platform EQ • "+status.sessions+" session(s)"
+                        else if(settings.profile==AudioProfile.PURE) "Pure bypass"
+                        else "No external session effect attached", color=quiet, fontSize=12.sp)
                     }
                   }
                 }
@@ -237,6 +239,13 @@ class MainActivity : ComponentActivity() {
                 }
                 Text("Native playback applies individual filters; external app EQ approximates correction using OEM bands.",color=quiet,fontSize=12.sp)
                 if(importMessage.isNotBlank()) Text(importMessage,color=quiet,fontSize=12.sp)
+                headphones?.let { current ->
+                  AdvancedFilters(current) { edited ->
+                    headphoneStore.save(edited)
+                    headphones=edited
+                    update(settings.copy(headphoneCorrection=true))
+                  }
+                }
                 Text("Android-compatible fixed-band EQ. Native precise DSP is not injected into other apps.",
                   color = quiet, fontSize = 12.sp)
                 TextButton(onClick = { update(settings.copy(customTone = Tone())) }) { Text("Reset to neutral") }
@@ -245,6 +254,7 @@ class MainActivity : ComponentActivity() {
                 Text("Native SEQ DSP playback and Android Auto music browsing.",color=quiet)
                 Text("Local files • FLAC, WAV, AAC, MP3, Ogg and device-supported codecs.",color=quiet,fontSize=12.sp)
                 Text("Playback: "+mediaStatus,color=accent)
+                Text("Audio path: "+nativeStatus,color=quiet,fontSize=12.sp)
                 Button(onClick={pickMusic.launch(arrayOf("audio/*","application/ogg"))}) {
                   Text("Add music files")
                 }
@@ -329,6 +339,7 @@ class MainActivity : ComponentActivity() {
                 Text("Live SEQ state", fontWeight = FontWeight.SemiBold)
                 Text("Service: " + if (status.running) "Running" else "Stopped")
                 Text("Local media: "+mediaStatus)
+                Text("Native DSP: "+nativeStatus)
                 Text("Attached sessions: " + status.sessions)
                 Text("Output: " + status.route)
                 Text("Last event: " + status.lastEvent, color = quiet)
@@ -449,5 +460,53 @@ class MainActivity : ComponentActivity() {
 @Composable private fun SelectionText(value: String) {
   Surface(shape = RoundedCornerShape(10.dp), color = panel) {
     Text(value, modifier = Modifier.fillMaxWidth().padding(12.dp), fontSize = 12.sp, color = quiet)
+  }
+}
+
+// Advanced parametric editor is collapsed by default to preserve the compact UI.
+@Composable private fun AdvancedFilters(
+  profile: HeadphoneProfile,
+  onSave: (HeadphoneProfile)->Unit
+) {
+  var expanded by remember { mutableStateOf(false) }
+  var draft by remember(profile) { mutableStateOf(profile) }
+  TextButton(onClick = { expanded=!expanded }) {
+    Text(if(expanded) "Hide advanced filters" else "Edit parametric filters ("+profile.filters.size+")")
+  }
+  if(!expanded) return
+  Text("Individual frequencies, gains and Q values • native playback only.",color=quiet,fontSize=12.sp)
+  draft.filters.forEachIndexed { i, band ->
+    SurfaceCard {
+      Row(verticalAlignment=Alignment.CenterVertically) {
+        Text("Filter "+(i+1),Modifier.weight(1f),fontWeight=FontWeight.SemiBold)
+        Switch(checked=band.enabled,onCheckedChange={ value ->
+          draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(enabled=value) })
+        })
+      }
+      Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+        FilterKind.entries.forEach { kind ->
+          FilterChip(selected=band.kind==kind,onClick={
+            draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(kind=kind) })
+          },label={Text(kind.name.replace("_"," "),fontSize=10.sp)})
+        }
+      }
+      Text("Frequency: "+band.frequency.toInt()+" Hz",color=quiet,fontSize=12.sp)
+      val value=(kotlin.math.log10(band.frequency/20.0)/3.0).toFloat().coerceIn(0f,1f)
+      Slider(value=value,onValueChange={ x ->
+        val freq=20.0*kotlin.math.pow(1000.0,x.toDouble())
+        draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(frequency=freq) })
+      })
+      Text("Gain: "+String.format(Locale.US,"%+.1f dB",band.gain),color=quiet,fontSize=12.sp)
+      Slider(value=band.gain.toFloat(),valueRange=-12f..12f,steps=47,onValueChange={ x ->
+        draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(gain=x.toDouble()) })
+      })
+      Text("Q: "+String.format(Locale.US,"%.2f",band.q),color=quiet,fontSize=12.sp)
+      Slider(value=band.q.toFloat(),valueRange=0.15f..12f,onValueChange={ x ->
+        draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(q=x.toDouble()) })
+      })
+    }
+  }
+  OutlinedButton(enabled=draft.valid(),onClick={ onSave(draft);expanded=false }) {
+    Text("Save precise filters")
   }
 }
