@@ -64,6 +64,7 @@ int main() {
     assert(sum<100.0);
     assert(std::abs(stable.responseDb(1200.0,rate)-10.0)<0.2);
   }
+  empty[0]=Band{}; // Isolate FIR tests from the earlier +6 dB EQ filter.
   std::array<float,2> impulseL{1.0f,0.0f},impulseR{1.0f,0.0f};
   p.configure(empty,48000,true);
   p.configureFir(impulseL.data(),impulseR.data(),2);
