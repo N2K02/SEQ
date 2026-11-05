@@ -16,6 +16,7 @@ import android.os.IBinder
 import com.n2k02.seq.MainActivity
 import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.SettingsStore
+import com.n2k02.seq.model.HeadphoneProfileStore
 import kotlinx.coroutines.*
 import java.io.InputStream
 
@@ -115,7 +116,9 @@ class SeqReferencePlayerService : Service() {
         .setBufferSizeInBytes(maxOf(min*2,32768))
         .setTransferMode(AudioTrack.MODE_STREAM).build()
       try {
-        NativeDsp(fmt.sampleRate,tone,setting.profile!=AudioProfile.PURE).use { dsp ->
+        val correction = if (setting.headphoneCorrection && !carProfile() &&
+            setting.profile != AudioProfile.PURE) HeadphoneProfileStore(this).read() else null
+        NativeDsp(fmt.sampleRate,tone,setting.profile!=AudioProfile.PURE,correction).use { dsp ->
           val bytes=ByteArray(8192)
           val pcm=FloatArray(4096)
           var remaining=fmt.dataBytes

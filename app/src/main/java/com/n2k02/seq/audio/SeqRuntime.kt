@@ -14,6 +14,7 @@ data class EngineStatus(
 object SeqRuntime {
   val status = MutableStateFlow(EngineStatus())
   val player = MutableStateFlow("Stopped")
+  val media = MutableStateFlow("Stopped")
   private val ring = CopyOnWriteArrayList<String>()
   fun log(message: String) {
     val safe = message.take(180).replace(Regex("[\\r\\n]"), " ")

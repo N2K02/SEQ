@@ -15,7 +15,8 @@ class SettingsStore(context: Context) {
       automaticCarProfile = prefs.getBoolean("car_auto", true),
       carManual = prefs.getBoolean("car_manual", false),
       carDeviceName = prefs.getString("car_device", "") ?: "",
-      aiEnabled = prefs.getBoolean("ai", false)
+      aiEnabled = prefs.getBoolean("ai", false),
+      headphoneCorrection = prefs.getBoolean("headphone_correction", false)
     )
   }
   fun write(s: EngineSettings) {
@@ -26,6 +27,6 @@ class SettingsStore(context: Context) {
       .putFloat("car_treble", s.carTone.treble)
       .putBoolean("car_auto", s.automaticCarProfile).putBoolean("car_manual", s.carManual)
       .putString("car_device", s.carDeviceName.take(100))
-      .putBoolean("ai", s.aiEnabled).apply()
+      .putBoolean("ai", s.aiEnabled).putBoolean("headphone_correction", s.headphoneCorrection).apply()
   }
 }

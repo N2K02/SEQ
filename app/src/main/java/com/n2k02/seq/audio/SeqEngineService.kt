@@ -21,6 +21,8 @@ import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.EngineSettings
 import com.n2k02.seq.model.SettingsStore
 import com.n2k02.seq.model.ToneMath
+import com.n2k02.seq.model.EqResponse
+import com.n2k02.seq.model.HeadphoneProfileStore
 
 /**
  * User-started foreground session-effects service.
@@ -144,12 +146,14 @@ class SeqEngineService : Service() {
   private fun apply(eq: Equalizer, s: EngineSettings) {
     val (car, _) = routeInfo()
     val tone = s.activeTone(car)
-    val headroom = ToneMath.headroomDb(tone)
+    val preset = if (s.headphoneCorrection && !car)
+      HeadphoneProfileStore(this).read() else null
+    val headroom = EqResponse.headroomDb(tone, preset)
     val range = eq.bandLevelRange
     for (i in 0 until eq.numberOfBands.toInt()) {
       val freq = eq.getCenterFreq(i.toShort()) / 1000
-      // Platform Equalizer has no separate pre-gain: attenuate all bands by headroom.
-      val millibel = ((ToneMath.gainDb(freq, tone) - headroom) * 100f)
+      // Approximation at OEM fixed band centers; native owned playback uses exact filters.
+      val millibel = ((EqResponse.totalDb(freq, tone, preset) - headroom) * 100.0)
         .toInt().coerceIn(range[0].toInt(), range[1].toInt()).toShort()
       eq.setBandLevel(i.toShort(), millibel)
     }

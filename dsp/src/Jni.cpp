@@ -2,6 +2,7 @@
 #include <array>
 #include <new>
 #include <exception>
+#include <cmath>
 #include "seq/Processor.h"
 
 using seq::Band;
@@ -11,22 +12,33 @@ using seq::MAX_BANDS;
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_n2k02_seq_audio_NativeDsp_nCreate(JNIEnv*, jobject) {
-  auto* p=new(std::nothrow) Processor();
-  return reinterpret_cast<jlong>(p);
+  return reinterpret_cast<jlong>(new(std::nothrow) Processor());
 }
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_n2k02_seq_audio_NativeDsp_nConfigure(JNIEnv*, jobject, jlong handle,
-    jint sampleRate, jfloat bass, jfloat mid, jfloat treble, jboolean enabled) {
+Java_com_n2k02_seq_audio_NativeDsp_nConfigure(JNIEnv* env, jobject, jlong handle,
+    jint sampleRate, jdoubleArray filterSpecs, jdouble preamp, jboolean enabled) {
   auto* p=reinterpret_cast<Processor*>(handle);
-  if (!p) return JNI_FALSE;
+  if (!p || !filterSpecs) return JNI_FALSE;
+  const jsize size=env->GetArrayLength(filterSpecs);
+  if (size<0 || size%4!=0 || size>static_cast<jsize>(MAX_BANDS*4)) return JNI_FALSE;
+  std::array<Band,MAX_BANDS> bands{};
+  std::array<jdouble,MAX_BANDS*4> data{};
+  env->GetDoubleArrayRegion(filterSpecs,0,size,data.data());
+  if (env->ExceptionCheck()) return JNI_FALSE;
+  for(jsize i=0;i<size;i+=4) {
+    const auto type=data[i], hz=data[i+1], gain=data[i+2], q=data[i+3];
+    if(!std::isfinite(type) || !std::isfinite(hz) || !std::isfinite(gain) ||
+       !std::isfinite(q) || (type!=0.0 && type!=1.0 && type!=2.0) ||
+       hz<20.0 || hz>20000.0 || gain < -12.0 || gain>12.0 || q<0.15 || q>12.0)
+       return JNI_FALSE;
+    const auto kind=type==0.0 ? FilterType::Peak :
+      (type==1.0 ? FilterType::LowShelf : FilterType::HighShelf);
+    bands[static_cast<std::size_t>(i/4)]=Band{kind,hz,gain,q,true};
+  }
   try {
-    std::array<Band,MAX_BANDS> bands{};
-    bands[0] = Band{FilterType::LowShelf, 110.0, bass, 0.7071, true};
-    bands[1] = Band{FilterType::Peak, 1100.0, mid, 0.80, true};
-    bands[2] = Band{FilterType::HighShelf, 6000.0, treble, 0.7071, true};
-    p->configure(bands, static_cast<double>(sampleRate), enabled != JNI_FALSE);
+    p->configure(bands,static_cast<double>(sampleRate),enabled!=JNI_FALSE,preamp);
     return JNI_TRUE;
-  } catch (const std::exception&) { return JNI_FALSE; }
+  } catch(const std::exception&) { return JNI_FALSE; }
 }
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_n2k02_seq_audio_NativeDsp_nProcess(JNIEnv* env, jobject,

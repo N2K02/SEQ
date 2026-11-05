@@ -5,7 +5,9 @@
 
 namespace seq {
 void Processor::configure(const std::array<Band, MAX_BANDS>& bands,
-                          double sampleRate, bool enabled) {
+                          double sampleRate, bool enabled, double userPreampDb) {
+  if (!std::isfinite(userPreampDb) || userPreampDb > 0.0 || userPreampDb < -24.0)
+    throw std::invalid_argument("unsafe preamp");
   if (!std::isfinite(sampleRate) || sampleRate<8000 || sampleRate>384000)
     throw std::invalid_argument("invalid sample rate");
   for (std::size_t i=0; i<MAX_BANDS; ++i)
@@ -19,7 +21,7 @@ void Processor::configure(const std::array<Band, MAX_BANDS>& bands,
       maxBoost=std::max(maxBoost, db);
     }
   }
-  pregainDb_=-maxBoost;
+  pregainDb_=std::min(-maxBoost, userPreampDb);
   scale_=static_cast<float>(std::pow(10.0,pregainDb_/20.0));
   enabled_=enabled;
   clipped_=0;

@@ -44,5 +44,10 @@ dependencies {
   implementation("org.bouncycastle:bcpkix-jdk15to18:1.81")
   implementation("org.conscrypt:conscrypt-android:2.7.0")
   implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
+  // Actual local music browsing and playback for phone + Android Auto.
+  val media3 = "1.7.1"
+  implementation("androidx.media3:media3-exoplayer:$media3")
+  implementation("androidx.media3:media3-session:$media3")
+  implementation("com.google.guava:guava:33.4.8-android")
   testImplementation("junit:junit:4.13.2")
 }

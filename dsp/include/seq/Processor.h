@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace seq {
-constexpr std::size_t MAX_BANDS=12;
+constexpr std::size_t MAX_BANDS=16;
 
 /**
  * Offline/test-reference DSP for interleaved stereo float PCM.
@@ -13,7 +13,7 @@ constexpr std::size_t MAX_BANDS=12;
  */
 class Processor {
 public:
-  void configure(const std::array<Band, MAX_BANDS>& bands, double sampleRate, bool enabled);
+  void configure(const std::array<Band, MAX_BANDS>& bands, double sampleRate, bool enabled, double userPreampDb = 0.0);
   void process(float* interleaved, std::size_t stereoFrames) noexcept;
   [[nodiscard]] double pregainDb() const noexcept { return pregainDb_; }
   [[nodiscard]] std::uint64_t clippedSamples() const noexcept { return clipped_; }

@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,6 +31,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.n2k02.seq.ai.OnDeviceTuner
 import com.n2k02.seq.ai.TuningSuggestion
+import com.n2k02.seq.audio.LocalMusicLibrary
+import com.n2k02.seq.audio.LocalTrack
+import com.n2k02.seq.audio.SeqMediaLibraryService
 import com.n2k02.seq.audio.SeqEngineService
 import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
@@ -44,7 +49,7 @@ private val background = Color(0xff101316)
 private val panel = Color(0xff202529)
 private val quiet = Color(0xffb0b8bf)
 private enum class Page(val title: String) {
-  HOME("Home"), SETTINGS("Settings"), EQ("Equalizer"), PLAYER("Reference Player"), DEVICES("Device Profiles"),
+  HOME("Home"), SETTINGS("Settings"), EQ("Equalizer"), PLAYER("Music Library"), DEVICES("Device Profiles"),
   AUTO("Android Auto"), AI("AI Assistant"), DIAGNOSTICS("Diagnostics"),
   LOGS("Logs"), UPDATES("Updates"), ABOUT("About")
 }
@@ -61,6 +66,42 @@ class MainActivity : ComponentActivity() {
       var page by remember { mutableStateOf(Page.HOME) }
       val status by SeqRuntime.status.collectAsState()
       val playerStatus by SeqRuntime.player.collectAsState()
+      val mediaStatus by SeqRuntime.media.collectAsState()
+      val musicStore = remember { LocalMusicLibrary(this@MainActivity) }
+      val headphoneStore = remember { HeadphoneProfileStore(this@MainActivity) }
+      var music by remember { mutableStateOf(musicStore.items()) }
+      var headphones by remember { mutableStateOf(headphoneStore.read()) }
+      var importMessage by remember { mutableStateOf("") }
+      val pickMusic = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { files ->
+        if(files.isNotEmpty()) {
+          runCatching {
+            files.forEach { uri ->
+              contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            music = musicStore.add(files)
+            importMessage = "Music added: " + files.size
+          }.onFailure { importMessage = "Import failed: " + (it.message ?: it.javaClass.simpleName) }
+        }
+      }
+      val pickCorrection = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if(uri!=null) {
+          runCatching {
+            val name=contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { c ->
+              if(c.moveToFirst()) c.getString(0) else null
+            } ?: "Headphone preset"
+            val raw=contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+              ?: error("Cannot read preset")
+            val p=AutoEqImport.parse(name,raw)
+            headphoneStore.save(p)
+            headphones=p
+            val next=settings.copy(headphoneCorrection=true)
+            settings=next
+            store.write(next)
+            if(next.enabled) startService(SeqEngineService.intent(this@MainActivity,SeqEngineService.REFRESH))
+            importMessage="Correction imported: " + p.name
+          }.onFailure { importMessage="Import failed: " + (it.message ?: it.javaClass.simpleName) }
+        }
+      }
       val pickWav = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
           runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -97,6 +138,7 @@ class MainActivity : ComponentActivity() {
                 update(settings.copy(enabled = false))
                 adb.shutdown()
                 stopService(SeqReferencePlayerService.intent(this@MainActivity, SeqReferencePlayerService.STOP))
+                stopService(SeqMediaLibraryService.intent(this@MainActivity, SeqMediaLibraryService.STOP))
                 finishAffinity()
               }, icon = { Icon(Icons.Rounded.PowerSettingsNew, null) }, label = { Text("Quit") })
             }
@@ -164,7 +206,7 @@ class MainActivity : ComponentActivity() {
               Page.SETTINGS -> {
                 MenuRow("Equalizer", "Precision tone controls", Icons.Rounded.Tune) { page = Page.EQ }
                 MenuRow("Device Profiles", "Headphones and output routes", Icons.Rounded.Headphones) { page = Page.DEVICES }
-                MenuRow("Reference Player", "Local lossless WAV • native DSP", Icons.Rounded.PlayCircle) { page = Page.PLAYER }
+                MenuRow("Music Library", "Lossless player • Android Auto", Icons.Rounded.PlayCircle) { page = Page.PLAYER }
                 MenuRow("Android Auto", "Car profile and compatibility", Icons.Rounded.DirectionsCar) { page = Page.AUTO }
                 MenuRow("AI Assistant", if (settings.aiEnabled) "On-device • optional" else "Optional • Off", Icons.Rounded.Memory) { page = Page.AI }
                 HorizontalDivider(Modifier.padding(vertical = 10.dp), color = quiet.copy(alpha = 0.25f))
@@ -177,21 +219,67 @@ class MainActivity : ComponentActivity() {
                 Text("Adjustments stay small to preserve the recording.", color = quiet)
                 if (settings.profile == AudioProfile.PURE) Text("Pure bypass ignores EQ values.", color = accent)
                 ToneControls(settings.customTone) { update(settings.copy(customTone = it)) }
-                Text("Android-compatible fixed-band EQ. Native 12-filter reference DSP is not injected into other apps.",
+                HorizontalDivider(color = quiet.copy(alpha = .2f))
+                Text("Headphone correction", fontWeight = FontWeight.SemiBold)
+                Text("Import AutoEq / Equalizer APO measured parametric preset. No large bundled database.",color=quiet,fontSize=12.sp)
+                ToggleRow("Apply headphone correction",settings.headphoneCorrection) {
+                  update(settings.copy(headphoneCorrection = it))
+                }
+                Text(headphones?.let { it.name + " • " + it.filters.size + " filters" } ?: "No imported correction",color=accent)
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                  OutlinedButton(onClick={ pickCorrection.launch(arrayOf("text/plain","*/*")) }) {
+                    Text("Import preset")
+                  }
+                  OutlinedButton(onClick={
+                    headphoneStore.clear(); headphones=null
+                    update(settings.copy(headphoneCorrection=false))
+                  }) { Text("Clear") }
+                }
+                Text("Native playback applies individual filters; external app EQ approximates correction using OEM bands.",color=quiet,fontSize=12.sp)
+                if(importMessage.isNotBlank()) Text(importMessage,color=quiet,fontSize=12.sp)
+                Text("Android-compatible fixed-band EQ. Native precise DSP is not injected into other apps.",
                   color = quiet, fontSize = 12.sp)
                 TextButton(onClick = { update(settings.copy(customTone = Tone())) }) { Text("Reset to neutral") }
               }
               Page.PLAYER -> {
-                Text("Local reference playback runs PCM samples through SEQ's native C++ filters.", color = quiet)
-                Text("Supported: 16-bit stereo PCM WAV. Other formats are not yet decoded.", color = quiet, fontSize = 12.sp)
-                Text("Player: " + playerStatus, color = accent)
-                Button(onClick = { pickWav.launch(arrayOf("audio/wav", "audio/x-wav", "audio/*")) }) {
-                  Text("Choose WAV file")
+                Text("Native SEQ DSP playback and Android Auto music browsing.",color=quiet)
+                Text("Local files • FLAC, WAV, AAC, MP3, Ogg and device-supported codecs.",color=quiet,fontSize=12.sp)
+                Text("Playback: "+mediaStatus,color=accent)
+                Button(onClick={pickMusic.launch(arrayOf("audio/*","application/ogg"))}) {
+                  Text("Add music files")
                 }
-                OutlinedButton(onClick = {
-                  stopService(SeqReferencePlayerService.intent(this@MainActivity, SeqReferencePlayerService.STOP))
-                }) { Text("Stop playback") }
-                Text("Android routes this playback to the selected output, potentially including a car. This does not provide an Android Auto browsing interface or bit-perfect USB output.", color = quiet, fontSize = 12.sp)
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                  OutlinedButton(onClick={
+                    startService(SeqMediaLibraryService.intent(this@MainActivity,SeqMediaLibraryService.PAUSE))
+                  }) { Text("Pause") }
+                  OutlinedButton(onClick={
+                    startService(SeqMediaLibraryService.intent(this@MainActivity,SeqMediaLibraryService.RESUME))
+                  }) { Text("Resume") }
+                  OutlinedButton(onClick={
+                    stopService(SeqMediaLibraryService.intent(this@MainActivity,SeqMediaLibraryService.STOP))
+                  }) { Text("Stop") }
+                }
+                if(music.isEmpty()) Text("Choose files to populate your Android Auto music library.",color=quiet)
+                else {
+                  Text("Library • "+music.size+" tracks",fontWeight=FontWeight.SemiBold)
+                  music.forEach { track ->
+                    MenuRow(track.title,"Tap to play with SEQ's PCM processing",Icons.Rounded.MusicNote) {
+                      stopService(SeqReferencePlayerService.intent(this@MainActivity,SeqReferencePlayerService.STOP))
+                      startService(SeqMediaLibraryService.intent(this@MainActivity,SeqMediaLibraryService.PLAY).setData(track.uri))
+                    }
+                  }
+                }
+                if(importMessage.isNotBlank()) Text(importMessage,color=quiet,fontSize=12.sp)
+                HorizontalDivider(color=quiet.copy(alpha=.2f))
+                Text("Reference WAV player",fontWeight=FontWeight.SemiBold)
+                Text("Direct AudioTrack + C++ DSP comparison path for stereo PCM16 WAV.",color=quiet,fontSize=12.sp)
+                OutlinedButton(onClick={pickWav.launch(arrayOf("audio/wav","audio/x-wav"))}) {
+                  Text("Open reference WAV")
+                }
+                Text("Reference: "+playerStatus,color=quiet,fontSize=12.sp)
+                OutlinedButton(onClick={
+                  stopService(SeqReferencePlayerService.intent(this@MainActivity,SeqReferencePlayerService.STOP))
+                }) { Text("Stop reference playback") }
               }
               Page.DEVICES -> {
                 Text("Profiles are stored locally; system EQ support depends on the source music app.", color = quiet)
@@ -202,10 +290,10 @@ class MainActivity : ComponentActivity() {
                 Text("Only a match among connected outputs is detected, not a verified playback route.", color = quiet, fontSize = 12.sp)
               }
               Page.AUTO -> {
-                Text("SEQ can process compatible music sessions while connected to Android Auto. It does not appear as a separate Android Auto media player.", color = quiet)
+                Text("SEQ now exposes a real local music library to compatible Android Auto media browsers. Add files under Music Library before connecting. Third-party EQ remains session dependent.", color = quiet)
                 ToggleRow("Automatic car profile", settings.automaticCarProfile) { update(settings.copy(automaticCarProfile = it)) }
                 ToggleRow("Car profile manually selected", settings.carManual) { update(settings.copy(carManual = it)) }
-                Text("To use automatic switching, enter the exact Bluetooth device name under Device Profiles.", color = quiet, fontSize = 12.sp)
+                Text("Android Auto displays the car-safe music library; no EQ controls are exposed while driving. Car profile selection is explicit or by matching a known connected Bluetooth device.", color = quiet, fontSize = 12.sp)
                 Text("Car EQ adjustment", fontWeight = FontWeight.SemiBold)
                 ToneControls(settings.carTone) { update(settings.copy(carTone = it)) }
               }
@@ -240,6 +328,7 @@ class MainActivity : ComponentActivity() {
               Page.DIAGNOSTICS -> {
                 Text("Live SEQ state", fontWeight = FontWeight.SemiBold)
                 Text("Service: " + if (status.running) "Running" else "Stopped")
+                Text("Local media: "+mediaStatus)
                 Text("Attached sessions: " + status.sessions)
                 Text("Output: " + status.route)
                 Text("Last event: " + status.lastEvent, color = quiet)
@@ -287,8 +376,8 @@ class MainActivity : ComponentActivity() {
                 OutlinedButton(onClick = { SeqRuntime.clear() }) { Text("Clear logs") }
               }
               Page.UPDATES -> {
-                Text("SEQ experimental 0.1.0", fontWeight = FontWeight.SemiBold)
-                Text("Updates are not automatic in this experimental build.", color = quiet)
+                Text("SEQ experimental 0.2.0", fontWeight = FontWeight.SemiBold)
+                Text("Experimental APKs are available from GitHub Actions once CI passes.", color = quiet)
               }
               Page.ABOUT -> {
                 Text("SEQ • high-fidelity sound", fontSize = 23.sp, fontWeight = FontWeight.Bold)
