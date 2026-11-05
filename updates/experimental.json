@@ -1,0 +1,14 @@
+{
+  "tag": "v0.3.0-exp-43",
+  "versionCode": 43,
+  "apkUrl": "https://github.com/N2K02/SEQ/releases/download/v0.3.0-exp-43/SEQ-0.3.0-exp-43.apk",
+  "sha256": "7405e20080713b80fec635f33c2c5341fc8a54b62dc6ec0af36120c88f0865d8",
+  "apkSize": 90974164,
+  "notes": [
+    "Material 3 Expressive theme and shared updater",
+    "Optional measured FIR and 4x intersample peak guard",
+    "USB direct PCM16 when supported",
+    "Android Auto local music browser"
+  ],
+  "publishedAt": "2026-11-05T22:25:40.705081+00:00"
+}
