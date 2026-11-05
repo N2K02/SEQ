@@ -7,6 +7,8 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -28,6 +30,7 @@ import androidx.lifecycle.lifecycleScope
 import com.n2k02.seq.ai.OnDeviceTuner
 import com.n2k02.seq.ai.TuningSuggestion
 import com.n2k02.seq.audio.SeqEngineService
+import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.model.*
 import com.n2k02.seq.shizuku.ShizukuBridge
@@ -41,7 +44,7 @@ private val background = Color(0xff101316)
 private val panel = Color(0xff202529)
 private val quiet = Color(0xffb0b8bf)
 private enum class Page(val title: String) {
-  HOME("Home"), SETTINGS("Settings"), EQ("Equalizer"), DEVICES("Device Profiles"),
+  HOME("Home"), SETTINGS("Settings"), EQ("Equalizer"), PLAYER("Reference Player"), DEVICES("Device Profiles"),
   AUTO("Android Auto"), AI("AI Assistant"), DIAGNOSTICS("Diagnostics"),
   LOGS("Logs"), UPDATES("Updates"), ABOUT("About")
 }
@@ -57,6 +60,16 @@ class MainActivity : ComponentActivity() {
       var settings by remember { mutableStateOf(store.read()) }
       var page by remember { mutableStateOf(Page.HOME) }
       val status by SeqRuntime.status.collectAsState()
+      val playerStatus by SeqRuntime.player.collectAsState()
+      val pickWav = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+          runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+          runCatching {
+            val start = SeqReferencePlayerService.intent(this, SeqReferencePlayerService.PLAY).setData(uri)
+            ContextCompat.startForegroundService(this, start)
+          }.onFailure { SeqRuntime.player.value = "Failed: " + it.javaClass.simpleName }
+        }
+      }
       val scope = rememberCoroutineScope()
       fun update(next: EngineSettings) {
         settings = next
@@ -83,6 +96,7 @@ class MainActivity : ComponentActivity() {
               NavigationBarItem(selected = false, onClick = {
                 update(settings.copy(enabled = false))
                 shizuku.close()
+                stopService(SeqReferencePlayerService.intent(this, SeqReferencePlayerService.STOP))
                 finishAffinity()
               }, icon = { Icon(Icons.Rounded.PowerSettingsNew, null) }, label = { Text("Quit") })
             }
@@ -150,6 +164,7 @@ class MainActivity : ComponentActivity() {
               Page.SETTINGS -> {
                 MenuRow("Equalizer", "Precision tone controls", Icons.Rounded.Tune) { page = Page.EQ }
                 MenuRow("Device Profiles", "Headphones and output routes", Icons.Rounded.Headphones) { page = Page.DEVICES }
+                MenuRow("Reference Player", "Local lossless WAV • native DSP", Icons.Rounded.PlayCircle) { page = Page.PLAYER }
                 MenuRow("Android Auto", "Car profile and compatibility", Icons.Rounded.DirectionsCar) { page = Page.AUTO }
                 MenuRow("AI Assistant", if (settings.aiEnabled) "On-device • optional" else "Optional • Off", Icons.Rounded.Memory) { page = Page.AI }
                 HorizontalDivider(Modifier.padding(vertical = 10.dp), color = quiet.copy(alpha = 0.25f))
@@ -165,6 +180,18 @@ class MainActivity : ComponentActivity() {
                 Text("Android-compatible fixed-band EQ. Native 12-filter reference DSP is not injected into other apps.",
                   color = quiet, fontSize = 12.sp)
                 TextButton(onClick = { update(settings.copy(customTone = Tone())) }) { Text("Reset to neutral") }
+              }
+              Page.PLAYER -> {
+                Text("Local reference playback runs PCM samples through SEQ's native C++ filters.", color = quiet)
+                Text("Supported: 16-bit stereo PCM WAV. Other formats are not yet decoded.", color = quiet, fontSize = 12.sp)
+                Text("Player: " + playerStatus, color = accent)
+                Button(onClick = { pickWav.launch(arrayOf("audio/wav", "audio/x-wav", "audio/*")) }) {
+                  Text("Choose WAV file")
+                }
+                OutlinedButton(onClick = {
+                  stopService(SeqReferencePlayerService.intent(this, SeqReferencePlayerService.STOP))
+                }) { Text("Stop playback") }
+                Text("Android routes this playback to the selected output, potentially including a car. This does not provide an Android Auto browsing interface or bit-perfect USB output.", color = quiet, fontSize = 12.sp)
               }
               Page.DEVICES -> {
                 Text("Profiles are stored locally; system EQ support depends on the source music app.", color = quiet)

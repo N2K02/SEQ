@@ -20,6 +20,11 @@ android {
     targetCompatibility = JavaVersion.VERSION_17
   }
   kotlinOptions { jvmTarget = "17" }
+  ndkVersion = "27.3.13750724"
+  defaultConfig {
+    ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+  }
+  externalNativeBuild { cmake { path = file("../dsp/CMakeLists.txt") } }
   packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }
 dependencies {
