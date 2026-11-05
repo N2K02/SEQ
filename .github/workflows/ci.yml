@@ -31,7 +31,11 @@ jobs:
         with:
           gradle-version: '9.6.0'
       - name: Install Android SDK
-        run: sdkmanager --install "platforms;android-37" "build-tools;37.0.0"
+        run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
+          # SDK 37.0 uses a qualified directory; AGP may still resolve android-37.
+          if [ -d "$ANDROID_HOME/platforms/android-37.0" ] && [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
+            ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
+          fi
       - name: Verify private dependency credential
         run: test -n "$N2K02_PACKAGES_TOKEN" || { echo "::error::N2K02_PACKAGES_TOKEN secret is missing. Configure private GitHub Packages read token in SEQ repository Actions secrets."; exit 1; }
       - name: Compile and run JVM unit tests
