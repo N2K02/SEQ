@@ -29,6 +29,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,6 +64,21 @@ private enum class Page(val title: String) {
   HOME("Home"), SETTINGS("Settings"), EQ("Equalizer"), FIDELITY("Advanced Audio"), PLAYER("Music Library"), DEVICES("Device Profiles"),
   AUTO("Android Auto"), AI("AI Assistant"), DIAGNOSTICS("Diagnostics"),
   LOGS("Logs"), UPDATES("Updates"), ABOUT("About")
+}
+
+private fun pageIcon(page:Page):ImageVector = when(page) {
+  Page.HOME -> Icons.Rounded.Home
+  Page.SETTINGS -> Icons.Rounded.Settings
+  Page.EQ -> Icons.Rounded.Tune
+  Page.FIDELITY -> Icons.Rounded.GraphicEq
+  Page.PLAYER -> Icons.Rounded.MusicNote
+  Page.DEVICES -> Icons.Rounded.Headphones
+  Page.AUTO -> Icons.Rounded.DirectionsCar
+  Page.AI -> Icons.Rounded.Memory
+  Page.DIAGNOSTICS -> Icons.Rounded.MonitorHeart
+  Page.LOGS -> Icons.Rounded.Subject
+  Page.UPDATES -> Icons.Rounded.SystemUpdate
+  Page.ABOUT -> Icons.Rounded.Info
 }
 
 class MainActivity : ComponentActivity() {
@@ -154,7 +173,7 @@ class MainActivity : ComponentActivity() {
       }
       N2K02Theme {
         Scaffold(containerColor = background,
-          topBar = { Header(page.title, if (page == Page.HOME) Icons.Rounded.Home else Icons.Rounded.Settings) },
+          topBar = { Header(page.title, pageIcon(page)) },
           bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
               NavigationBarItem(selected = page == Page.HOME, onClick = { page = Page.HOME },
@@ -459,8 +478,23 @@ class MainActivity : ComponentActivity() {
               }
               Page.LOGS -> {
                 Text("In-memory events; no automatic disk logging.", color = quiet)
-                SelectionText(SeqRuntime.logs().joinToString("\n").ifBlank { "No events yet." })
-                OutlinedButton(onClick = { SeqRuntime.clear() }) { Text("Clear logs") }
+                val visibleLogs=SeqRuntime.logs().joinToString("\n").ifBlank { "No events yet." }
+                SelectionText(visibleLogs)
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                  OutlinedButton(onClick={
+                    val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("SEQ logs",visibleLogs))
+                  }) { Text("Copy") }
+                  OutlinedButton(onClick={
+                    val send=Intent(Intent.ACTION_SEND).apply {
+                      type="text/plain"
+                      putExtra(Intent.EXTRA_SUBJECT,"SEQ audio diagnostics")
+                      putExtra(Intent.EXTRA_TEXT,visibleLogs)
+                    }
+                    startActivity(Intent.createChooser(send,"Share SEQ logs"))
+                  }) { Text("Share") }
+                  OutlinedButton(onClick={SeqRuntime.clear()}) { Text("Clear") }
+                }
               }
               Page.UPDATES -> {
                 N2K02UpdateScreen(
@@ -497,7 +531,8 @@ class MainActivity : ComponentActivity() {
     Spacer(Modifier.width(10.dp))
     Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
       maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-    Icon(Icons.Rounded.GraphicEq, null, tint = accent)
+    Icon(painter = painterResource(R.drawable.ic_seq), contentDescription="SEQ",
+      modifier=Modifier.size(28.dp), tint=Color.Unspecified)
     Spacer(Modifier.width(6.dp))
     Text("SEQ", style=MaterialTheme.typography.titleMedium, fontWeight=FontWeight.Bold)
   }
