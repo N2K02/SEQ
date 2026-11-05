@@ -38,8 +38,11 @@ dependencies {
   implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
   implementation("androidx.core:core-ktx:1.17.0")
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-  implementation("dev.rikka.shizuku:api:13.1.5")
-  implementation("dev.rikka.shizuku:provider:13.1.5")
+  // Direct localhost ADB; no Shizuku runtime or daemon.
+  implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
+  implementation("org.bouncycastle:bcprov-jdk15to18:1.81")
+  implementation("org.bouncycastle:bcpkix-jdk15to18:1.81")
+  implementation("org.conscrypt:conscrypt-android:2.7.0")
   implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
   testImplementation("junit:junit:4.13.2")
 }

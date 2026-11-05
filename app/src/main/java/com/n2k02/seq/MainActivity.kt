@@ -33,7 +33,7 @@ import com.n2k02.seq.audio.SeqEngineService
 import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.model.*
-import com.n2k02.seq.shizuku.ShizukuBridge
+import com.n2k02.seq.adb.LocalAdbDiagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,11 +51,11 @@ private enum class Page(val title: String) {
 
 class MainActivity : ComponentActivity() {
   private lateinit var store: SettingsStore
-  private lateinit var shizuku: ShizukuBridge
+  private lateinit var adb: LocalAdbDiagnostics
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     store = SettingsStore(this)
-    shizuku = ShizukuBridge(this)
+    adb = LocalAdbDiagnostics(applicationContext)
     setContent {
       var settings by remember { mutableStateOf(store.read()) }
       var page by remember { mutableStateOf(Page.HOME) }
@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity() {
                 icon = { Icon(Icons.Rounded.Settings, null) }, label = { Text("Settings") })
               NavigationBarItem(selected = false, onClick = {
                 update(settings.copy(enabled = false))
-                shizuku.close()
+                adb.shutdown()
                 stopService(SeqReferencePlayerService.intent(this@MainActivity, SeqReferencePlayerService.STOP))
                 finishAffinity()
               }, icon = { Icon(Icons.Rounded.PowerSettingsNew, null) }, label = { Text("Quit") })
@@ -168,7 +168,7 @@ class MainActivity : ComponentActivity() {
                 MenuRow("Android Auto", "Car profile and compatibility", Icons.Rounded.DirectionsCar) { page = Page.AUTO }
                 MenuRow("AI Assistant", if (settings.aiEnabled) "On-device • optional" else "Optional • Off", Icons.Rounded.Memory) { page = Page.AI }
                 HorizontalDivider(Modifier.padding(vertical = 10.dp), color = quiet.copy(alpha = 0.25f))
-                MenuRow("Diagnostics", "Shizuku • Audio sessions", Icons.Rounded.MonitorHeart) { page = Page.DIAGNOSTICS }
+                MenuRow("Diagnostics", "Direct ADB • Audio sessions", Icons.Rounded.MonitorHeart) { page = Page.DIAGNOSTICS }
                 MenuRow("Logs", "Recent engine events", Icons.Rounded.Subject) { page = Page.LOGS }
                 MenuRow("Updates", "Build information", Icons.Rounded.SystemUpdate) { page = Page.UPDATES }
                 MenuRow("About", "SEQ sound principles", Icons.Rounded.Info) { page = Page.ABOUT }
@@ -244,16 +244,42 @@ class MainActivity : ComponentActivity() {
                 Text("Output: " + status.route)
                 Text("Last event: " + status.lastEvent, color = quiet)
                 HorizontalDivider(color = quiet.copy(alpha = .2f))
-                val shizukuStatus by shizuku.state.collectAsState()
-                Text("Shizuku (optional)", fontWeight = FontWeight.SemiBold)
-                Text(shizukuStatus, color = quiet)
-                Button(onClick = { shizuku.connect() }) { Text("Connect / grant Shizuku") }
-                var snapshot by remember { mutableStateOf("") }
-                OutlinedButton(onClick = {
-                  scope.launch { snapshot = withContext(Dispatchers.IO) { shizuku.snapshot() } }
-                }) { Text("Read audio routing diagnostics") }
-                if (snapshot.isNotBlank()) SelectionText(snapshot)
-                Text("Only limited output routing diagnostics are requested. No microphone, audio capture, or root access.", color = quiet, fontSize = 12.sp)
+                val adbStatus by adb.state.collectAsState()
+                Text("Direct ADB (optional)", fontWeight = FontWeight.SemiBold)
+                Text(adbStatus.message, color = quiet)
+                var connectPort by remember { mutableStateOf("5555") }
+                OutlinedTextField(value = connectPort, onValueChange = {
+                  connectPort = it.filter { char -> char.isDigit() }.take(5)
+                }, label = { Text("Local ADB connection port") }, modifier = Modifier.fillMaxWidth(),
+                  singleLine = true)
+                Button(enabled = !adbStatus.busy, onClick = { adb.inspect(connectPort) }) {
+                  Text("Verify shell and inspect audio")
+                }
+                Text("When VRec already enabled TCP/5555, use port 5555. SEQ uses its own separately authorized key.",
+                  color = quiet, fontSize = 12.sp)
+                HorizontalDivider(color = quiet.copy(alpha = .2f))
+                var pairingPort by remember { mutableStateOf("") }
+                var pairingCode by remember { mutableStateOf("") }
+                Text("First-time wireless pairing", fontWeight = FontWeight.SemiBold)
+                OutlinedTextField(value = pairingPort, onValueChange = {
+                  pairingPort = it.filter { char -> char.isDigit() }.take(5)
+                }, label = { Text("Pairing port from Android Settings") },
+                  modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = pairingCode, onValueChange = {
+                  pairingCode = it.filter { char -> char.isDigit() }.take(6)
+                }, label = { Text("Six-digit pairing code") },
+                  modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedButton(enabled = !adbStatus.busy && pairingCode.length == 6,
+                  onClick = {
+                    val code = pairingCode
+                    pairingCode = ""
+                    adb.pair(pairingPort, code)
+                  }) { Text("Pair with Android") }
+                Text("Enable Wireless debugging → Pair device with pairing code. After pairing, use the separate main connection port (shown on the Wireless debugging page).",
+                  color = quiet, fontSize = 12.sp)
+                if (adbStatus.details.isNotBlank()) SelectionText(adbStatus.details)
+                Text("No Shizuku, root, continuous ADB connection, TCP mode changes or microphone access.",
+                  color = quiet, fontSize = 12.sp)
               }
               Page.LOGS -> {
                 Text("In-memory events; no automatic disk logging.", color = quiet)
@@ -267,7 +293,7 @@ class MainActivity : ComponentActivity() {
               Page.ABOUT -> {
                 Text("SEQ • high-fidelity sound", fontSize = 23.sp, fontWeight = FontWeight.Bold)
                 Text("Accuracy over loudness. Avoid unnecessary compression and processing.", color = quiet)
-                Text("External app effects are cooperative. Shizuku is diagnostics-only. No automatic DSP on unrelated or protected audio.", color = quiet)
+                Text("External app effects are cooperative. ADB is diagnostics-only. No automatic DSP on unrelated or protected audio.", color = quiet)
               }
             }
           }
@@ -276,7 +302,7 @@ class MainActivity : ComponentActivity() {
     }
   }
   override fun onDestroy() {
-    shizuku.close()
+    adb.shutdown()
     super.onDestroy()
   }
 }
