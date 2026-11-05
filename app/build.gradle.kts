@@ -9,8 +9,10 @@ android {
     applicationId = "com.n2k02.seq"
     minSdk = 29
     targetSdk = 35
-    versionCode = 3
-    versionName = "0.3.0-experimental"
+    // Each CI build gets a monotonically increasing version code for the shared updater.
+    val buildNumber = providers.gradleProperty("seqBuild").orNull?.toIntOrNull()
+    versionCode = buildNumber?.takeIf { it > 2 } ?: 3
+    versionName = "0.3.0-experimental" + (buildNumber?.let { ".$it" } ?: "")
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
   buildFeatures { compose = true; buildConfig = true; aidl = true }

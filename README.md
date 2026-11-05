@@ -41,3 +41,8 @@ See [Architecture](docs/ARCHITECTURE.md) and [Reference Player](docs/REFERENCE_P
 6. Test Quit during playback; compare Pure and Reference at matched volume and inspect Logs.
 
 Shared private dependencies: CI needs the `N2K02_PACKAGES_TOKEN` repository secret with read access to `N2K02/n2k02theme` and `N2K02/n2k02updater` GitHub Packages; credentials must never enter public source or the APK.
+
+## Material 3 Expressive and GitHub pre-releases
+SEQ shares `n2k02theme` and `n2k02updater` with mRadio and VRec. A verified CI build publishes a GitHub **pre-release** APK and an experimental updater manifest on the `gh-pages` branch. The updater checks the public manifest and verifies the package and APK SHA-256 before installation. No GitHub token is bundled in SEQ.
+
+CI debug APKs are **not reliably signed with a persistent key**. Do not treat this as a production update channel: Android enforces signer identity, so future experimental upgrades can require uninstall/reinstall until a dedicated secure release signing key is configured.

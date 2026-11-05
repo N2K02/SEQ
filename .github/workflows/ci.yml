@@ -40,10 +40,89 @@ jobs:
       - name: Verify private dependency credential
         run: test -n "$N2K02_PACKAGES_TOKEN" || { echo "::error::N2K02_PACKAGES_TOKEN secret is missing. Configure private GitHub Packages read token in SEQ repository Actions secrets."; exit 1; }
       - name: Compile and run JVM unit tests
-        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
+        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest -PseqBuild=${{ github.run_number }}
       - uses: actions/upload-artifact@v4
         if: success()
         with:
           name: SEQ-experimental-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+  prerelease:
+    name: Publish tested experimental APK
+    needs: [android, dsp]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/experimental/high-fidelity-engine'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: seq-experimental-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: SEQ-experimental-debug
+          path: ${{ runner.temp }}/seq-apk
+      - name: Publish tagged pre-release and public update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEQ_RUN: ${{ github.run_number }}
+          SEQ_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          CURRENT="$(gh api repos/N2K02/SEQ/branches/experimental/high-fidelity-engine --jq .commit.sha)"
+          if [ "$CURRENT" != "$SEQ_SHA" ]; then
+            echo "Skipping obsolete build; newest branch commit is $CURRENT"
+            exit 0
+          fi
+          APK="$RUNNER_TEMP/seq-apk/app-debug.apk"
+          test -f "$APK"
+          TAG="v0.3.0-exp-$SEQ_RUN"
+          NAME="SEQ-0.3.0-exp-$SEQ_RUN.apk"
+          NOTES="$RUNNER_TEMP/seq-release-notes.md"
+          cat > "$NOTES" <<'EOF'
+          Experimental SEQ Hi-Fi Android build with native reference DSP, optional FIR, intersample peak guard, conditional USB direct PCM, Android Auto local media browser, n2k02theme Material 3 Expressive UI, n2k02updater and direct ADB diagnostics.
+          
+          **Device testing required.** Audio processing only affects compatible sessions. USB bit-perfect works only where the USB DAC and Android HAL report support.
+          
+          **Signing:** CI debug signing is not a stable release identity. Later builds may require uninstall/reinstall until a persistent release signing key is configured; never bypass Android installer signature checks.
+          EOF
+          gh release create "$TAG" "$APK#$NAME" \
+            --repo N2K02/SEQ --target "$SEQ_SHA" \
+            --title "SEQ 0.3 Experimental ($SEQ_RUN)" \
+            --notes-file "$NOTES" --prerelease
+          export SEQ_APK_URL="https://github.com/N2K02/SEQ/releases/download/$TAG/$NAME"
+          export SEQ_APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
+          export SEQ_APK_SIZE="$(stat -c%s "$APK")"
+          python3 - <<'PY'
+          import os,json,datetime
+          obj = dict(tag=os.environ["SEQ_RUN"],versionCode=int(os.environ["SEQ_RUN"]),
+            apkUrl=os.environ["SEQ_APK_URL"],sha256=os.environ["SEQ_APK_SHA"],
+            apkSize=int(os.environ["SEQ_APK_SIZE"]),
+            notes=["Material 3 Expressive theme and shared updater",
+              "Optional measured FIR and 4x intersample peak guard",
+              "USB direct PCM16 when supported", "Android Auto local music browser"],
+            publishedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
+          obj["tag"]="v0.3.0-exp-"+obj["tag"]
+          with open(os.environ["RUNNER_TEMP"]+"/experimental.json","w") as f:
+            json.dump(obj,f,indent=2)
+          PY
+          # Update the separate public manifest branch, not the experimental PR.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+            git fetch origin gh-pages
+            git checkout -B gh-pages FETCH_HEAD
+          else
+            git checkout --orphan gh-pages
+            git rm -rf . >/dev/null || true
+          fi
+          mkdir -p updates
+          cp "$RUNNER_TEMP/experimental.json" updates/experimental.json
+          git add updates/experimental.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: publish SEQ experimental updater feed [skip ci]"
+            git push origin gh-pages
+          fi
