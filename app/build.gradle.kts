@@ -10,8 +10,8 @@ android {
     applicationId = "com.n2k02.seq"
     minSdk = 29
     targetSdk = 35
-    versionCode = 2
-    versionName = "0.2.0-experimental"
+    versionCode = 3
+    versionName = "0.3.0-experimental"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
   buildFeatures { compose = true; buildConfig = true; aidl = true }
@@ -31,7 +31,9 @@ dependencies {
   val composeBom = platform("androidx.compose:compose-bom:2025.12.00")
   implementation(composeBom)
   implementation("androidx.activity:activity-compose:1.12.4")
-  implementation("androidx.compose.material3:material3")
+  implementation("androidx.compose.material3:material3:1.5.0-beta01")
+  implementation("dev.n2k02:theme:0.1.4")
+  implementation("dev.n2k02:updater:0.1.19")
   implementation("androidx.compose.material:material-icons-extended")
   implementation("androidx.compose.foundation:foundation")
   implementation("androidx.compose.ui:ui")

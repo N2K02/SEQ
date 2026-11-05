@@ -15,6 +15,9 @@ jobs:
           ctest --test-dir dsp/build --output-on-failure
   android:
     runs-on: ubuntu-latest
+    env:
+      N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN }}
+      N2K02_PACKAGES_USER: N2K02
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -29,6 +32,8 @@ jobs:
           gradle-version: '8.13'
       - name: Install Android SDK
         run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+      - name: Verify private dependency credential
+        run: test -n "$N2K02_PACKAGES_TOKEN" || { echo "::error::N2K02_PACKAGES_TOKEN secret is missing. Configure private GitHub Packages read token in SEQ repository Actions secrets."; exit 1; }
       - name: Compile and run JVM unit tests
         run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
       - uses: actions/upload-artifact@v4

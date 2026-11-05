@@ -8,6 +8,12 @@ import android.os.Bundle
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import dev.n2k02.theme.N2K02Theme
+import dev.n2k02.updater.N2K02UpdateBadge
+import dev.n2k02.updater.N2K02UpdateBadgedIcon
+import dev.n2k02.updater.N2K02UpdateScreen
+import dev.n2k02.updater.hasPendingUpdate
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,15 +45,17 @@ import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.model.*
 import com.n2k02.seq.adb.LocalAdbDiagnostics
+import com.n2k02.seq.SeqUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-private val accent = Color(0xff77dad6)
-private val background = Color(0xff101316)
-private val panel = Color(0xff202529)
-private val quiet = Color(0xffb0b8bf)
+// Shared mRadio-style Material 3 Expressive palette: dynamic color and motion.
+private val accent: Color @Composable get() = MaterialTheme.colorScheme.primary
+private val background: Color @Composable get() = MaterialTheme.colorScheme.background
+private val panel: Color @Composable get() = MaterialTheme.colorScheme.surfaceContainerLow
+private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
   HOME("Home"), SETTINGS("Settings"), EQ("Equalizer"), PLAYER("Music Library"), DEVICES("Device Profiles"),
   AUTO("Android Auto"), AI("AI Assistant"), DIAGNOSTICS("Diagnostics"),
@@ -61,9 +69,13 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     store = SettingsStore(this)
     adb = LocalAdbDiagnostics(applicationContext)
+    SeqUpdater.init(applicationContext)
     setContent {
       var settings by remember { mutableStateOf(store.read()) }
       var page by remember { mutableStateOf(Page.HOME) }
+      BackHandler(enabled=page != Page.HOME && page != Page.SETTINGS) { page=Page.SETTINGS }
+      val updateStatus by SeqUpdater.controller.status.collectAsState()
+      val experimentalEnabled by SeqUpdater.experimentalEnabled.collectAsState()
       val status by SeqRuntime.status.collectAsState()
       val playerStatus by SeqRuntime.player.collectAsState()
       val mediaStatus by SeqRuntime.media.collectAsState()
@@ -123,21 +135,23 @@ class MainActivity : ComponentActivity() {
             .onFailure { SeqRuntime.log("Start failed: " + it.javaClass.simpleName) }
         }
       }
-      MaterialTheme(colorScheme = darkColorScheme(
-        primary = accent, secondary = accent, background = background,
-        surface = panel, onBackground = Color.White, onSurface = Color.White
-      )) {
+      N2K02Theme {
         Scaffold(containerColor = background,
           topBar = { Header(page.title, if (page == Page.HOME) Icons.Rounded.Home else Icons.Rounded.Settings) },
           bottomBar = {
-            NavigationBar(containerColor = Color(0xff171b1e)) {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
               NavigationBarItem(selected = page == Page.HOME, onClick = { page = Page.HOME },
                 icon = { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
               NavigationBarItem(selected = page != Page.HOME, onClick = { page = Page.SETTINGS },
-                icon = { Icon(Icons.Rounded.Settings, null) }, label = { Text("Settings") })
+                icon = {
+                  N2K02UpdateBadgedIcon(updateStatus) {
+                    Icon(Icons.Rounded.Settings, contentDescription = "Settings")
+                  }
+                }, label = { Text("Settings") })
               NavigationBarItem(selected = false, onClick = {
                 update(settings.copy(enabled = false))
                 adb.shutdown()
+                SeqUpdater.controller.cancel()
                 stopService(SeqReferencePlayerService.intent(this@MainActivity, SeqReferencePlayerService.STOP))
                 stopService(SeqMediaLibraryService.intent(this@MainActivity, SeqMediaLibraryService.STOP))
                 finishAffinity()
@@ -214,7 +228,8 @@ class MainActivity : ComponentActivity() {
                 HorizontalDivider(Modifier.padding(vertical = 10.dp), color = quiet.copy(alpha = 0.25f))
                 MenuRow("Diagnostics", "Direct ADB • Audio sessions", Icons.Rounded.MonitorHeart) { page = Page.DIAGNOSTICS }
                 MenuRow("Logs", "Recent engine events", Icons.Rounded.Subject) { page = Page.LOGS }
-                MenuRow("Updates", "Build information", Icons.Rounded.SystemUpdate) { page = Page.UPDATES }
+                MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",
+                  Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
                 MenuRow("About", "SEQ sound principles", Icons.Rounded.Info) { page = Page.ABOUT }
               }
               Page.EQ -> {
@@ -387,8 +402,12 @@ class MainActivity : ComponentActivity() {
                 OutlinedButton(onClick = { SeqRuntime.clear() }) { Text("Clear logs") }
               }
               Page.UPDATES -> {
-                Text("SEQ experimental 0.2.0", fontWeight = FontWeight.SemiBold)
-                Text("Experimental APKs are available from GitHub Actions once CI passes.", color = quiet)
+                N2K02UpdateScreen(
+                  controller = SeqUpdater.controller,
+                  installGuard = SeqUpdater.installGuard,
+                  experimentalEnabled = experimentalEnabled,
+                  onExperimentalEnabledChange = SeqUpdater::setExperimentalEnabled,
+                )
               }
               Page.ABOUT -> {
                 Text("SEQ • high-fidelity sound", fontSize = 23.sp, fontWeight = FontWeight.Bold)
@@ -401,6 +420,10 @@ class MainActivity : ComponentActivity() {
       }
     }
   }
+  override fun onResume() {
+    super.onResume()
+    SeqUpdater.onResume(this)
+  }
   override fun onDestroy() {
     adb.shutdown()
     super.onDestroy()
@@ -409,30 +432,39 @@ class MainActivity : ComponentActivity() {
 @Composable private fun Header(title: String, icon: ImageVector) {
   Row(Modifier.fillMaxWidth().background(background).padding(horizontal = 18.dp, vertical = 16.dp),
     verticalAlignment = Alignment.CenterVertically) {
-    Icon(icon, null, tint = Color.White)
+    Icon(icon, null, tint = MaterialTheme.colorScheme.onSurface)
     Spacer(Modifier.width(10.dp))
-    Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+      maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
     Icon(Icons.Rounded.GraphicEq, null, tint = accent)
     Spacer(Modifier.width(6.dp))
-    Text("SEQ", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+    Text("SEQ", style=MaterialTheme.typography.titleMedium, fontWeight=FontWeight.Bold)
   }
 }
 @Composable private fun SurfaceCard(content: @Composable ColumnScope.() -> Unit) {
-  Surface(shape = RoundedCornerShape(17.dp), color = panel, modifier = Modifier.fillMaxWidth()) {
+  Surface(shape = MaterialTheme.shapes.large, color = panel, modifier = Modifier.fillMaxWidth()) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
   }
 }
-@Composable private fun MenuRow(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
-  Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 15.dp),
-    verticalAlignment = Alignment.CenterVertically) {
-    Icon(icon, null, tint = Color.White)
-    Spacer(Modifier.width(16.dp))
-    Column(Modifier.weight(1f)) {
-      Text(title, fontWeight = FontWeight.Medium)
-      Text(subtitle, color = quiet, fontSize = 12.sp, maxLines = 2)
-    }
-    Icon(Icons.Rounded.ChevronRight, null, tint = quiet)
-  }
+@Composable private fun MenuRow(
+  title: String, subtitle: String, icon: ImageVector,
+  showUpdateBadge: Boolean = false,
+  updateStatus: dev.n2k02.updater.UpdateStatus = dev.n2k02.updater.UpdateStatus.Idle,
+  onClick: () -> Unit
+) {
+  ListItem(
+    modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    headlineContent = { Text(title, style=MaterialTheme.typography.titleMedium) },
+    supportingContent = { Text(subtitle, maxLines=2, style=MaterialTheme.typography.bodySmall) },
+    leadingContent = { Icon(icon, contentDescription=null, tint=MaterialTheme.colorScheme.onSurface) },
+    trailingContent = {
+      Row(verticalAlignment=Alignment.CenterVertically) {
+        if(showUpdateBadge) N2K02UpdateBadge(updateStatus)
+        Icon(Icons.Rounded.ChevronRight, contentDescription=null, tint=quiet)
+      }
+    },
+    colors=ListItemDefaults.colors(containerColor=MaterialTheme.colorScheme.background)
+  )
 }
 @Composable private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
   Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

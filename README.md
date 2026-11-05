@@ -10,7 +10,7 @@ SEQ is a battery-conscious experimental sound engine, with a minimal neutral Mat
 - Media3 local music library + actual Android Auto MediaLibraryService (host validation pending); car profiles can be selected manually or by named connected output. Imported AutoEq headphone corrections are optional.
 - Optional direct ADB diagnostics over loopback, using VRec's libadb architecture, persistent per-app ADB identity and shell UID 2000 verification. Connection is on demand and closes after diagnostics.
 - Optional foreground-only Gemini Nano assistance via Android AICore; proposes bounded adjustments which require user confirmation.
-- Compact Home / Settings / Quit interface, diagnostics, in-memory Logs, Updates information.
+- mRadio-style single-header Home / Settings / Quit navigation, shared Material 3 Expressive `n2k02theme` color/motion system, built-in `n2k02updater` Updates submenu with pending-update badges and install guards.
 
 ## Accuracy and safety
 - Direct/Pure bypass means no SEQ effect, **not** bit-perfect end-to-end hardware playback.
@@ -39,3 +39,5 @@ See [Architecture](docs/ARCHITECTURE.md) and [Reference Player](docs/REFERENCE_P
 4. Connect Android Auto and open SEQ's local music library. External-app EQ still depends on each source's session and OEM effects.
 5. To inspect audio using ADB UID 2000, open Settings → Diagnostics, enter the local Wireless debugging connection port or existing TCP/5555. On-demand only; no persistent shell.
 6. Test Quit during playback; compare Pure and Reference at matched volume and inspect Logs.
+
+Shared private dependencies: CI needs the `N2K02_PACKAGES_TOKEN` repository secret with read access to `N2K02/n2k02theme` and `N2K02/n2k02updater` GitHub Packages; credentials must never enter public source or the APK.
