@@ -31,7 +31,8 @@ jobs:
         with:
           gradle-version: '9.6.0'
       - name: Install Android SDK
-        run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
+        run: |
+          sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
           # SDK 37.0 uses a qualified directory; AGP may still resolve android-37.
           if [ -d "$ANDROID_HOME/platforms/android-37.0" ] && [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
             ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
