@@ -1,0 +1,31 @@
+name: SEQ validation
+on:
+  push:
+    branches: [main, experimental/high-fidelity-engine]
+  pull_request:
+jobs:
+  dsp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native DSP and run tests
+        run: |
+          cmake -S dsp -B dsp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build dsp/build -j 2
+          ctest --test-dir dsp/build --output-on-failure
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Compile and run JVM unit tests
+        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
