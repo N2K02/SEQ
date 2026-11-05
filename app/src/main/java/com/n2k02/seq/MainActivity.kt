@@ -96,7 +96,7 @@ class MainActivity : ComponentActivity() {
               NavigationBarItem(selected = false, onClick = {
                 update(settings.copy(enabled = false))
                 shizuku.close()
-                stopService(SeqReferencePlayerService.intent(this, SeqReferencePlayerService.STOP))
+                stopService(SeqReferencePlayerService.intent(this@MainActivity, SeqReferencePlayerService.STOP))
                 finishAffinity()
               }, icon = { Icon(Icons.Rounded.PowerSettingsNew, null) }, label = { Text("Quit") })
             }
@@ -189,7 +189,7 @@ class MainActivity : ComponentActivity() {
                   Text("Choose WAV file")
                 }
                 OutlinedButton(onClick = {
-                  stopService(SeqReferencePlayerService.intent(this, SeqReferencePlayerService.STOP))
+                  stopService(SeqReferencePlayerService.intent(this@MainActivity, SeqReferencePlayerService.STOP))
                 }) { Text("Stop playback") }
                 Text("Android routes this playback to the selected output, potentially including a car. This does not provide an Android Auto browsing interface or bit-perfect USB output.", color = quiet, fontSize = 12.sp)
               }
