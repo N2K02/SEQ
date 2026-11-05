@@ -493,7 +493,7 @@ class MainActivity : ComponentActivity() {
       Text("Frequency: "+band.frequency.toInt()+" Hz",color=quiet,fontSize=12.sp)
       val value=(kotlin.math.log10(band.frequency/20.0)/3.0).toFloat().coerceIn(0f,1f)
       Slider(value=value,onValueChange={ x ->
-        val freq=20.0*kotlin.math.pow(1000.0,x.toDouble())
+        val freq=20.0*Math.pow(1000.0,x.toDouble())
         draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(frequency=freq) })
       })
       Text("Gain: "+String.format(Locale.US,"%+.1f dB",band.gain),color=quiet,fontSize=12.sp)
