@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit
 
 /** Executes within Shizuku's isolated shell-privileged UserService process. */
 class SeqShellService : ISeqShell.Stub() {
+  override fun destroy() { kotlin.system.exitProcess(0) }
   override fun uid(): Int = Process.myUid()
 
   override fun audioSnapshot(): String {

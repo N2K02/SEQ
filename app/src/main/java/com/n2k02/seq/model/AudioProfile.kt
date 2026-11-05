@@ -20,9 +20,9 @@ data class EngineSettings(
 ) {
   fun activeTone(car: Boolean): Tone = when (profile) {
     AudioProfile.PURE -> Tone()
-    AudioProfile.REFERENCE -> if (car && automaticCarProfile) carTone.bounded() else customTone.bounded()
+    AudioProfile.REFERENCE -> if (car) carTone.bounded() else customTone.bounded()
     AudioProfile.REFINED -> {
-      val t = if (car && automaticCarProfile) carTone else customTone
+      val t = if (car) carTone else customTone
       t.copy(bass = t.bass + 0.6f, treble = t.treble + 0.35f).bounded()
     }
   }

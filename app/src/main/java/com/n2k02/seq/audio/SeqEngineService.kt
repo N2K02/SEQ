@@ -63,8 +63,12 @@ class SeqEngineService : Service() {
       addAction(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION)
       addAction(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION)
     }
-    if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
-    else @Suppress("DEPRECATION") registerReceiver(receiver, filter)
+    if (Build.VERSION.SDK_INT >= 33) {
+      registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+    } else {
+      @Suppress("DEPRECATION")
+      registerReceiver(receiver, filter)
+    }
     receiverRegistered = true
     audio.registerAudioDeviceCallback(callback, null)
     callbackRegistered = true
@@ -109,11 +113,12 @@ class SeqEngineService : Service() {
     return car to title.take(80)
   }
   private fun attach(id: Int) {
-    if (effects.containsKey(id)) return
     val s = settings.read()
-    if (!s.enabled || s.profile == AudioProfile.PURE) return
+    if (!SessionPolicy.canAttach(s, id, effects.containsKey(id))) return
+    var created: Equalizer? = null
     try {
       val eq = Equalizer(0, id)
+      created = eq
       if (!eq.hasControl()) {
         eq.release()
         SeqRuntime.log("Session effect unavailable (control denied)")
@@ -127,9 +132,11 @@ class SeqEngineService : Service() {
         return
       }
       effects[id] = eq
+      created = null
       SeqRuntime.log("Effect attached to compatible session")
       report("Audio session attached")
     } catch (e: Exception) {
+      runCatching { created?.release() }
       SeqRuntime.log("Attach failed: " + e.javaClass.simpleName)
       report("Audio effect unavailable")
     }

@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity() {
         if (!next.enabled) stopService(SeqEngineService.intent(this, SeqEngineService.STOP))
         else {
           val command = if (status.running) SeqEngineService.REFRESH else SeqEngineService.START
-          runCatching { ContextCompat.startForegroundService(this, SeqEngineService.intent(this, command)) }
+          runCatching { if (status.running) startService(SeqEngineService.intent(this, command)) else ContextCompat.startForegroundService(this, SeqEngineService.intent(this, command)) }
             .onFailure { SeqRuntime.log("Start failed: " + it.javaClass.simpleName) }
         }
       }
@@ -299,7 +299,9 @@ class MainActivity : ComponentActivity() {
     Text(label, modifier = Modifier.weight(1f), color = quiet)
     Text(String.format(Locale.US, "%+.1f dB", gain), color = accent)
   }
-  Slider(value = gain, onValueChange = { update((it * 2).toInt() / 2f) },
+  var localGain by remember(gain) { mutableFloatStateOf(gain) }
+  Slider(value = localGain, onValueChange = { localGain = (it * 2).toInt() / 2f },
+    onValueChangeFinished = { update(localGain) },
     valueRange = -6f..6f, steps = 23, modifier = Modifier.fillMaxWidth())
 }
 @Composable private fun SelectionText(value: String) {
