@@ -15,6 +15,11 @@ class SeqAdbUiContractTest {
    val ui=source("MainActivity.kt")
    val diagnostics=source("SeqAdbDiagnosticsScreen.kt")
    assertTrue(ui.contains("SeqAdbDiagnosticsScreen("))
+   assertTrue(diagnostics.contains("AdbSettingCard(\"SEQ ADB Details\""))
+   assertTrue(diagnostics.contains("status.uidVerified"))
+   assertTrue(diagnostics.contains("status.verifiedAt"))
+   assertTrue(diagnostics.contains("status.scanning"))
+   assertTrue(diagnostics.contains("status.transport"))
    assertTrue(diagnostics.contains("AdbSettingCard(\"Pairing & recovery\""))
    assertTrue(diagnostics.contains("AdbSettingCard(\"Connection & security\""))
    listOf("Auto-detect pairing code","Connection watchdog","Start on boot",
@@ -22,7 +27,7 @@ class SeqAdbUiContractTest {
      assertTrue(diagnostics.contains(it))
    }
    assertEquals(5,Regex("AdbSettingToggle\\(\"").findAll(diagnostics).count())
-   listOf("SEQ ADB Details","Permissions","Automatic connection","SEQ audio diagnostics",
+   listOf("Permissions","Automatic connection","SEQ audio diagnostics",
      "Show discovered ports","Inspect audio","Retry","Open Wireless debugging",
      "Disable TCP/5555","OutlinedTextField","Enter pairing code").forEach {
      assertFalse("Unexpected manual or extra control: $it",diagnostics.contains(it))
