@@ -18,7 +18,7 @@ class SeqAdbPreferences(context: Context) {
     get()=prefs.getBoolean("discover_wireless",true)
     set(value){ prefs.edit().putBoolean("discover_wireless",value).apply() }
   var watchdog: Boolean
-    get()=prefs.getBoolean("watchdog",false)
+    get()=prefs.getBoolean("watchdog",true)
     set(value){ prefs.edit().putBoolean("watchdog",value).apply() }
   var preferExistingTcp: Boolean
     get()=prefs.getBoolean("prefer_existing_tcp",true)
@@ -27,10 +27,10 @@ class SeqAdbPreferences(context: Context) {
     get()=prefs.getBoolean("auto_pair_code",true)
     set(v) {prefs.edit().putBoolean("auto_pair_code",v).apply()}
   var tcpMode:Boolean
-    get()=prefs.getBoolean("tcp_mode",false)
+    get()=prefs.getBoolean("tcp_mode",true)
     set(v) {prefs.edit().putBoolean("tcp_mode",v).apply()}
   var startOnBoot:Boolean
-    get()=prefs.getBoolean("start_on_boot",false)
+    get()=prefs.getBoolean("start_on_boot",true)
     set(v) {prefs.edit().putBoolean("start_on_boot",v).apply()}
   var restoreAfterRestart:Boolean
     get()=prefs.getBoolean("restore_after_restart",false)
