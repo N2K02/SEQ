@@ -46,6 +46,7 @@ import com.n2k02.seq.ai.TuningSuggestion
 import com.n2k02.seq.audio.LocalMusicLibrary
 import com.n2k02.seq.audio.LocalTrack
 import com.n2k02.seq.audio.SeqMediaLibraryService
+import com.n2k02.seq.audio.SeqMediaSessionListener
 import com.n2k02.seq.audio.SeqEngineService
 import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
@@ -109,6 +110,8 @@ class MainActivity : ComponentActivity() {
       val playerStatus by SeqRuntime.player.collectAsState()
       val mediaStatus by SeqRuntime.media.collectAsState()
       val nativeStatus by SeqRuntime.mediaDsp.collectAsState()
+      val externalPlayer by SeqMediaSessionListener.detectedPlayer.collectAsState()
+      val mediaListenerConnected by SeqMediaSessionListener.connected.collectAsState()
       val musicStore = remember { LocalMusicLibrary(this@MainActivity) }
       val headphoneStore = remember { HeadphoneProfileStore(this@MainActivity) }
       val impulseStore = remember { MeasuredImpulseStore(this@MainActivity) }
@@ -236,6 +239,20 @@ class MainActivity : ComponentActivity() {
                       update(settings.copy(enabled = it))
                     })
                   }
+                }
+                SurfaceCard {
+                  Text("Detected media",fontWeight=FontWeight.SemiBold)
+                  Text(when {
+                    !mediaListenerConnected -> "Enable notification access to detect external players"
+                    externalPlayer!=null -> "Playing: "+externalPlayer
+                    else -> "No active media session detected"
+                  },color=quiet,fontSize=12.sp)
+                  if(!mediaListenerConnected) TextButton(onClick={
+                    startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                  }) { Text("Grant media detection access") }
+                  else if(externalPlayer!=null && !status.effectAttached)
+                    Text("Player detected; Android has not exposed a compatible audio-effect session.",
+                      color=quiet,fontSize=12.sp)
                 }
                 SurfaceCard {
                   Text("Listening Profile", color = quiet, fontSize = 13.sp)
