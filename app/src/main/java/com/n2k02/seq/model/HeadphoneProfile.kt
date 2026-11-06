@@ -1,8 +1,5 @@
 package com.n2k02.seq.model
 
-import android.content.Context
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.InputStream
 import kotlin.math.*
 
@@ -115,32 +112,3 @@ object EqResponse {
 }
 
 /** No network downloads. User supplies their own correctly measured AutoEq preset. */
-class HeadphoneProfileStore(context:Context) {
-  private val prefs=context.applicationContext.getSharedPreferences("seq_headphones",Context.MODE_PRIVATE)
-  fun save(profile:HeadphoneProfile) {
-    require(profile.valid())
-    val filters=JSONArray()
-    profile.filters.forEach { f ->
-      filters.put(JSONObject().put("type",f.kind.name).put("hz",f.frequency)
-        .put("db",f.gain).put("q",f.q).put("enabled",f.enabled))
-    }
-    val obj=JSONObject().put("name",profile.name).put("preamp",profile.preampDb).put("filters",filters)
-    prefs.edit().putString("profile",obj.toString()).apply()
-    SeqAudioRevision.changed()
-  }
-  fun read():HeadphoneProfile? = runCatching {
-    val raw=prefs.getString("profile",null) ?: return null
-    val json=JSONObject(raw)
-    val arr=json.getJSONArray("filters")
-    val list=(0 until arr.length()).map { i ->
-      val f=arr.getJSONObject(i)
-      EqFilter(FilterKind.valueOf(f.getString("type")),f.getDouble("hz"),
-        f.getDouble("db"),f.getDouble("q"),f.getBoolean("enabled"))
-    }
-    HeadphoneProfile(json.getString("name"),json.getDouble("preamp"),list).takeIf { it.valid() }
-  }.getOrNull()
-  fun clear() {
-    prefs.edit().remove("profile").apply()
-    SeqAudioRevision.changed()
-  }
-}

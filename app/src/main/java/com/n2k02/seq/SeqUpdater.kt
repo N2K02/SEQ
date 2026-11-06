@@ -16,9 +16,7 @@ object SeqUpdater {
   private var instance:UpdaterController? = null
   val experimentalEnabled=MutableStateFlow(false)
   val installGuard=UpdateInstallGuard {
-    !SeqRuntime.status.value.running &&
-      SeqRuntime.media.value=="Stopped" &&
-      SeqRuntime.player.value=="Stopped"
+    !SeqRuntime.status.value.running
   }
   private fun prefs()=app.getSharedPreferences("seq_updater",Context.MODE_PRIVATE)
   fun init(context:Context) {

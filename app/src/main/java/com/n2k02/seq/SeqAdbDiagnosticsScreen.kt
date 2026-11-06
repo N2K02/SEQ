@@ -23,8 +23,6 @@ internal fun SeqAdbDiagnosticsScreen(
   context: Context,
   adb: LocalAdbDiagnostics,
   engine: EngineStatus,
-  localPlayer: String,
-  nativePath: String,
   permissionRevision: Int
 ) {
   val pref=adb.preferences

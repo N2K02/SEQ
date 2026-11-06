@@ -12,12 +12,9 @@ data class EngineSettings(
   val profile: AudioProfile = AudioProfile.AUTO,
   /** Adaptive music analysis (needs Android's audio-analysis permission). */
   val adaptive: Boolean = true,
-  // Retained backend capabilities without UI; always safe defaults.
-  val headphoneCorrection: Boolean = false,
-  val convolution: Boolean = false,
   val peakGuard: Boolean = true,
+  /** Limiter ceiling (dBFS). */
   val peakCeilingDb: Float = -1.0f,
-  val usbDirect: Boolean = false,
   val allMedia: Boolean = true,
   val loudness: Boolean = true
 )

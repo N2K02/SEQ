@@ -24,19 +24,6 @@ env:
   APP: SEQ
 
 jobs:
-  dsp:
-    name: Native DSP regression tests
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Build and test native C++ DSP
-        run: |
-          set -euo pipefail
-          cmake -S dsp -B dsp/build -DCMAKE_BUILD_TYPE=Release
-          cmake --build dsp/build -j 2
-          ctest --test-dir dsp/build --output-on-failure
-
   android:
     name: Android unit tests, lint and R8 validation
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -152,11 +139,11 @@ jobs:
 
   publish:
     name: Sign and publish stable or experimental (shared mRadio key)
-    needs: [android, dsp]
+    needs: [android]
     if: >-
       (github.event_name != 'pull_request' ||
         github.event.pull_request.head.repo.full_name == github.repository) &&
-      needs.android.result == 'success' && needs.dsp.result == 'success'
+      needs.android.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -4,18 +4,17 @@ import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
 
-/** Regression guard: avoid eager composition of hundreds of music rows. */
+/** Regression guard: compact UI without a music library. */
 class SeqLightweightUiContractTest {
   private val source: String by lazy {
     val relative = "app/src/main/java/com/n2k02/seq/MainActivity.kt"
     listOf(File(relative),File("../"+relative),File("src/main/java/com/n2k02/seq/MainActivity.kt"))
       .first { it.isFile }.readText()
   }
-  @Test fun libraryIsPagedWithinExistingScreen() {
-    assertTrue(source.contains("music.take(visibleTrackCount).forEach"))
-    assertTrue(source.contains("mutableIntStateOf(20)"))
-    assertTrue(source.contains("Show more tracks"))
-    assertFalse(source.contains("music.forEach { track ->"))
+  @Test fun musicLibraryIsRemoved() {
+    assertFalse(source.contains("Music Library"))
+    assertFalse(source.contains("LocalMusicLibrary"))
+    assertFalse(source.contains("Page.PLAYER"))
   }
   @Test fun navigationKeepsStateOnRotation() {
     assertTrue(source.contains("var page by rememberSaveable"))

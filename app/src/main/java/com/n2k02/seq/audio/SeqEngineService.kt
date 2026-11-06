@@ -20,7 +20,6 @@ import com.n2k02.seq.MainActivity
 import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.EngineSettings
 import com.n2k02.seq.model.SettingsStore
-import com.n2k02.seq.model.HeadphoneProfileStore
 import com.n2k02.seq.model.SystemEqCurveBuilder
 
 /**
@@ -55,8 +54,7 @@ class SeqEngineService : Service() {
       }
       val id = intent.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, -1)
       val source = intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME)
-      if (!SessionPolicy.isExternalSession(id,source,packageName) ||
-          SeqOwnedAudioSessions.contains(id)) return
+      if (!SessionPolicy.isExternalSession(id,source,packageName)) return
       when (intent.action) {
         AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION -> attach(id)
         AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION -> detach(id)
@@ -147,8 +145,7 @@ class SeqEngineService : Service() {
   }
   private fun apply(effect: SeqSystemEffect, s: EngineSettings) {
     val car = SeqRoute.isCar(this, s)
-    val preset = if (s.headphoneCorrection && !car) HeadphoneProfileStore(this).read() else null
-    effect.apply(SystemEqCurveBuilder.build(SeqRoute.tone(this, s, car), preset,
+    effect.apply(SystemEqCurveBuilder.build(SeqRoute.tone(this, s, car), null,
       limiter = s.peakGuard), s.peakGuard, s.peakCeilingDb)
   }
   private fun detach(id: Int) {

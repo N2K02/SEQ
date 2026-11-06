@@ -39,7 +39,6 @@ object SeqPlaybackMonitor {
   private const val VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
   private const val EXTRA_STREAM = "android.media.EXTRA_VOLUME_STREAM_TYPE"
   private val volumeSync = Runnable {
-    com.n2k02.seq.model.SeqAudioRevision.changed() // native DSP picks up new loudness
     resync()
   }
 

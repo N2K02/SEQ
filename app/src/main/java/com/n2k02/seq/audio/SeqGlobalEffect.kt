@@ -1,7 +1,6 @@
 package com.n2k02.seq.audio
 
 import android.content.Context
-import com.n2k02.seq.model.HeadphoneProfileStore
 import com.n2k02.seq.model.SettingsStore
 import com.n2k02.seq.model.SystemEqCurveBuilder
 
@@ -22,12 +21,8 @@ object SeqGlobalEffect {
     val ctx = context.applicationContext
     app = ctx
     val s = SettingsStore(ctx).read()
-    if (!SessionPolicy.shouldProcessAllMedia(s, SeqOwnedAudioSessions.ownPlaybackActive())) {
-      val reason = when {
-        !s.enabled || !s.allMedia -> null
-        SeqOwnedAudioSessions.ownPlaybackActive() -> "SEQ player active • native DSP"
-        else -> "Pure bypass"
-      }
+    if (!SessionPolicy.shouldProcessAllMedia(s)) {
+      val reason = if (!s.enabled || !s.allMedia) null else "Pure bypass"
       release(reason)
       return
     }
@@ -41,8 +36,7 @@ object SeqGlobalEffect {
     }
     try {
       val car = SeqRoute.isCar(ctx, s)
-      val preset = if (s.headphoneCorrection && !car) HeadphoneProfileStore(ctx).read() else null
-      current.apply(SystemEqCurveBuilder.build(SeqRoute.tone(ctx, s, car), preset,
+      current.apply(SystemEqCurveBuilder.build(SeqRoute.tone(ctx, s, car), null,
         limiter = s.peakGuard), s.peakGuard, s.peakCeilingDb)
       if (!current.setEnabled(true)) {
         release("All-media effect could not be enabled")

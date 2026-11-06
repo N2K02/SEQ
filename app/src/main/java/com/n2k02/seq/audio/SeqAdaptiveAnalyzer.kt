@@ -7,7 +7,6 @@ import android.media.audiofx.Visualizer
 import android.os.Handler
 import android.os.Looper
 import com.n2k02.seq.model.AutoSound
-import com.n2k02.seq.model.SeqAudioRevision
 import com.n2k02.seq.model.SettingsStore
 import com.n2k02.seq.model.Tone
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -113,7 +112,6 @@ object SeqAdaptiveAnalyzer {
     state.value = next
     if (AutoSound.significant(applied, next)) {
       applied = next
-      SeqAudioRevision.changed()
       app?.let(SeqGlobalEffect::sync)
     }
   }

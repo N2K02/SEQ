@@ -12,10 +12,7 @@ object SessionPolicy {
     id>0 && !sourcePackage.isNullOrBlank() && sourcePackage!=ownPackage
   /** Per-app broadcast sessions are only used when all-media processing is off (no double EQ). */
   fun acceptsSessionBroadcasts(s: EngineSettings) = s.enabled && !s.allMedia
-  /**
-   * The output-mix effect runs whenever the engine is on in all-media mode, except while
-   * SEQ's own player is playing (it is already processed by the native DSP).
-   */
-  fun shouldProcessAllMedia(s: EngineSettings, ownPlaybackActive: Boolean) =
-    s.enabled && s.allMedia && s.profile != AudioProfile.PURE && !ownPlaybackActive
+  /** The output-mix effect runs whenever the engine is on in all-media mode (not Pure). */
+  fun shouldProcessAllMedia(s: EngineSettings) =
+    s.enabled && s.allMedia && s.profile != AudioProfile.PURE
 }

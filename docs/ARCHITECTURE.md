@@ -11,6 +11,9 @@
 - Android Auto route correction is **conditional** on attachable music session and user-specified Bluetooth output matching or explicit car mode. A connected output is not necessarily the active media route. No car-screen app is advertised because SEQ is not a media player.
 - Native DSP supports 16 biquads (3 tone bands + up to 12 imported), conservative headroom and allocation-free per-frame processing. It is connected to local Media3 decoded PCM16 and reference WAV playback, not injected into third-party apps.
 
+## Scope
+SEQ has no player or music library (removed 2026-11-06): it processes other apps' media only. The native C++ DSP, Media3 player, Android Auto media browser and reference/USB players were removed with it; all processing runs in Android's DynamicsProcessing effect.
+
 ## SEQ Auto — automatic sound engine (default)
 No sliders. Two choices only: **SEQ Auto** or **Pure**. `AutoSound` composes, per path:
 1. **Output-aware balance** (`RoutePolicy`): phone speaker (bass protection, presence), wired/USB headphones (Harman-style bass shelf), Bluetooth (gentle lift), Android Auto car mode (road-noise bass/treble lift, slight mid scoop).

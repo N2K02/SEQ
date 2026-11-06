@@ -41,15 +41,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.n2k02.seq.audio.LocalMusicLibrary
-import com.n2k02.seq.audio.LocalTrack
-import com.n2k02.seq.audio.SeqMediaLibraryService
 import com.n2k02.seq.audio.SeqMediaSessionListener
 import com.n2k02.seq.audio.SeqEngineService
 import com.n2k02.seq.audio.SeqGlobalEffect
 import com.n2k02.seq.audio.SeqPlaybackMonitor
 import com.n2k02.seq.audio.SeqAdaptiveAnalyzer
-import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.model.*
 import com.n2k02.seq.adb.LocalAdbDiagnostics
@@ -66,14 +62,13 @@ private val background: Color @Composable get() = MaterialTheme.colorScheme.back
 private val panel: Color @Composable get() = MaterialTheme.colorScheme.surfaceContainerLow
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
-  HOME("Home"), SETTINGS("Settings"), PLAYER("Music Library"), DIAGNOSTICS("Diagnostics"),
+  HOME("Home"), SETTINGS("Settings"), DIAGNOSTICS("Diagnostics"),
   UPDATES("Updates")
 }
 
 private fun pageIcon(page:Page):ImageVector = when(page) {
   Page.HOME -> Icons.Rounded.Home
   Page.SETTINGS -> Icons.Rounded.Settings
-  Page.PLAYER -> Icons.Rounded.MusicNote
   Page.DIAGNOSTICS -> Icons.Rounded.MonitorHeart
   Page.UPDATES -> Icons.Rounded.SystemUpdate
 }
@@ -103,38 +98,11 @@ class MainActivity : ComponentActivity() {
       val updateStatus by SeqUpdater.controller.status.collectAsState()
       val experimentalEnabled by SeqUpdater.experimentalEnabled.collectAsState()
       val status by SeqRuntime.status.collectAsState()
-      val playerStatus by SeqRuntime.player.collectAsState()
-      val mediaStatus by SeqRuntime.media.collectAsState()
-      val nativeStatus by SeqRuntime.mediaDsp.collectAsState()
       val externalPlayer by SeqMediaSessionListener.detectedPlayer.collectAsState()
       val mediaListenerConnected by SeqMediaSessionListener.connected.collectAsState()
       val mediaActive by SeqPlaybackMonitor.mediaActive.collectAsState()
       val carMode by SeqPlaybackMonitor.carMode.collectAsState()
       val adaptiveOn = remember(permissionRevision) { SeqAdaptiveAnalyzer.permitted(this@MainActivity) }
-      val musicStore = remember { LocalMusicLibrary(this@MainActivity) }
-      var music by remember { mutableStateOf(musicStore.items()) }
-      var visibleTrackCount by rememberSaveable { mutableIntStateOf(20) }
-      var importMessage by remember { mutableStateOf("") }
-      val pickMusic = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { files ->
-        if(files.isNotEmpty()) {
-          runCatching {
-            files.forEach { uri ->
-              contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            music = musicStore.add(files)
-            importMessage = "Music added: " + files.size
-          }.onFailure { importMessage = "Import failed: " + (it.message ?: it.javaClass.simpleName) }
-        }
-      }
-      val pickWav = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-          runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-          runCatching {
-            val start = SeqReferencePlayerService.intent(this, SeqReferencePlayerService.PLAY).setData(uri)
-            ContextCompat.startForegroundService(this, start)
-          }.onFailure { SeqRuntime.player.value = "Failed: " + it.javaClass.simpleName }
-        }
-      }
       val scope = rememberCoroutineScope()
       fun update(next: EngineSettings) {
         settings = next
@@ -175,8 +143,6 @@ class MainActivity : ComponentActivity() {
                 update(settings.copy(enabled = false))
                 adb.shutdown()
                 SeqUpdater.controller.cancel()
-                stopService(SeqReferencePlayerService.intent(this@MainActivity, SeqReferencePlayerService.STOP))
-                stopService(SeqMediaLibraryService.intent(this@MainActivity, SeqMediaLibraryService.STOP))
                 finishAffinity()
               }, icon = { Icon(Icons.Rounded.PowerSettingsNew, null) }, label = { Text("Quit") })
                 }
@@ -255,8 +221,7 @@ class MainActivity : ComponentActivity() {
                     Spacer(Modifier.width(12.dp))
                     Column {
                       Text("Signal Path", fontWeight = FontWeight.SemiBold)
-                      Text(if(nativeStatus=="Native EQ active") "SEQ native processing • active"
-                        else if(status.globalActive) "All media • "+status.effectEngine+" • "+status.route
+                      Text(if(status.globalActive) "All media • "+status.effectEngine+" • "+status.route
                         else if(status.effectAttached) "Session EQ • "+status.sessions+" session(s)"
                         else if(settings.profile==AudioProfile.PURE) "Pure bypass"
                         else if(settings.enabled) status.lastEvent
@@ -266,65 +231,15 @@ class MainActivity : ComponentActivity() {
                 }
               }
               Page.SETTINGS -> {
-                MenuRow("Music Library", "Lossless player • Android Auto", Icons.Rounded.PlayCircle) { page = Page.PLAYER }
-                HorizontalDivider(Modifier.padding(vertical = 10.dp), color = quiet.copy(alpha = 0.25f))
                 MenuRow("Diagnostics", "Direct ADB • Audio sessions", Icons.Rounded.MonitorHeart) { page = Page.DIAGNOSTICS }
                 MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",
                   Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
-              }
-              Page.PLAYER -> {
-                Text("Native SEQ DSP playback and Android Auto music browsing.",color=quiet)
-                Text("Local files • FLAC, WAV, AAC, MP3, Ogg and device-supported codecs.",color=quiet,fontSize=12.sp)
-                Text("Playback: "+mediaStatus,color=accent)
-                Text("Audio path: "+nativeStatus,color=quiet,fontSize=12.sp)
-                Button(onClick={pickMusic.launch(arrayOf("audio/*","application/ogg"))}) {
-                  Text("Add music files")
-                }
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                  OutlinedButton(onClick={
-                    startService(SeqMediaLibraryService.intent(this@MainActivity,SeqMediaLibraryService.PAUSE))
-                  }) { Text("Pause") }
-                  OutlinedButton(onClick={
-                    startService(SeqMediaLibraryService.intent(this@MainActivity,SeqMediaLibraryService.RESUME))
-                  }) { Text("Resume") }
-                  OutlinedButton(onClick={
-                    stopService(SeqMediaLibraryService.intent(this@MainActivity,SeqMediaLibraryService.STOP))
-                  }) { Text("Stop") }
-                }
-                if(music.isEmpty()) Text("Choose files to populate your Android Auto music library.",color=quiet)
-                else {
-                  Text("Library • "+music.size+" tracks",fontWeight=FontWeight.SemiBold)
-                  music.take(visibleTrackCount).forEach { track ->
-                    MenuRow(track.title,"Tap to play with SEQ's PCM processing",Icons.Rounded.MusicNote) {
-                      stopService(SeqReferencePlayerService.intent(this@MainActivity,SeqReferencePlayerService.STOP))
-                      startService(SeqMediaLibraryService.intent(this@MainActivity,SeqMediaLibraryService.PLAY).setData(track.uri))
-                    }
-                  }
-                  if(music.size>visibleTrackCount) {
-                    TextButton(onClick={ visibleTrackCount=(visibleTrackCount+20).coerceAtMost(music.size) }) {
-                      Text("Show more tracks ("+visibleTrackCount+"/"+music.size+")")
-                    }
-                  }
-                }
-                if(importMessage.isNotBlank()) Text(importMessage,color=quiet,fontSize=12.sp)
-                HorizontalDivider(color=quiet.copy(alpha=.2f))
-                Text("Reference WAV player",fontWeight=FontWeight.SemiBold)
-                Text("Direct AudioTrack + C++ DSP comparison path for stereo PCM16 WAV.",color=quiet,fontSize=12.sp)
-                OutlinedButton(onClick={pickWav.launch(arrayOf("audio/wav","audio/x-wav"))}) {
-                  Text("Open reference WAV")
-                }
-                Text("Reference: "+playerStatus,color=quiet,fontSize=12.sp)
-                OutlinedButton(onClick={
-                  stopService(SeqReferencePlayerService.intent(this@MainActivity,SeqReferencePlayerService.STOP))
-                }) { Text("Stop reference playback") }
               }
               Page.DIAGNOSTICS -> {
                 SeqAdbDiagnosticsScreen(
                   context=this@MainActivity,
                   adb=adb,
                   engine=status,
-                  localPlayer=mediaStatus,
-                  nativePath=nativeStatus,
                   permissionRevision=permissionRevision
                 )
               }

@@ -26,7 +26,6 @@ class SeqMediaDetectionContractTest {
     val engine=source("java/com/n2k02/seq/audio/SeqEngineService.kt")
     assertTrue(engine.contains("AudioEffect.EXTRA_AUDIO_SESSION"))
     assertTrue(engine.contains("SessionPolicy.isExternalSession"))
-    assertTrue(engine.contains("SeqOwnedAudioSessions.contains"))
     assertFalse(engine.contains("Equalizer(0, 0)"))
   }
   @Test fun activationRequiresExplicitNotificationAccessAndShowsActualEffectState() {
@@ -52,7 +51,5 @@ class SeqMediaDetectionContractTest {
     assertTrue(monitor.contains("ACTION_ENTER_CAR_MODE"))
     assertTrue(listener.contains("SeqPlaybackMonitor.start(this)"))
     assertTrue(engine.contains("SeqPlaybackMonitor.start(this)"))
-    for(player in listOf("SeqMediaLibraryService.kt","SeqReferencePlayerService.kt"))
-      assertTrue(source("java/com/n2k02/seq/audio/$player").contains("SeqOwnedAudioSessions.setPlaying"))
   }
 }
