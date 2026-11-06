@@ -28,3 +28,10 @@ No periodic background timers, no spectrum animations, no audio FFT running cont
 
 ## Tests
 Unit tests include tone/headroom calculations and AI output constraints. Native CTest covers bypass, neutral behavior, channel isolation, clipping counter, filter response and invalid settings. Device instrumentation remains required for session ownership, direct ADB transport and Android Auto.
+
+## ADB UX parity with VRec
+- Diagnostics begins with SEQ ADB Details (shell UID, transport, last verification, discovered ports).
+- No manual pairing or port entry. An explicitly enabled Accessibility service reads **only Android Settings** pairing dialogs; no code is persisted.
+- mDNS discovers local-only services. TCP/5555 migration requires a verified UID 2000 and re-verification after adbd restarts.
+- Optional boot restore respects a same-boot user-off state. WorkManager offers bounded 15-minute recovery if enabled and previously authorized.
+- Quit stops searches and worker, without changing audio DSP permission restrictions.

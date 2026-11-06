@@ -46,3 +46,6 @@ Shared private dependencies: CI needs the `N2K02_PACKAGES_TOKEN` repository secr
 SEQ shares `n2k02theme` and `n2k02updater` with mRadio and VRec. A verified CI build publishes a GitHub **pre-release** APK and an experimental updater manifest on the `gh-pages` branch. The updater checks the public manifest and verifies the package and APK SHA-256 before installation. No GitHub token is bundled in SEQ.
 
 CI debug APKs are **not reliably signed with a persistent key**. Do not treat this as a production update channel: Android enforces signer identity, so future experimental upgrades can require uninstall/reinstall until a dedicated secure release signing key is configured.
+
+## Automatic ADB (VRec-style)
+SEQ contains no manual pairing-code or port input UI. The user enables Accessibility once in Android Settings; SEQ reads only the Settings Wireless debugging pairing dialog, discovers on-device TLS/pairing ports via mDNS, and verifies shell UID 2000. It supports automatic reconnect, optional TCP/5555 promotion, boot recovery, watchdog and opt-in restore-after-restart with Android-granted WRITE_SECURE_SETTINGS. TCP/5555 may be network-reachable; switch it off when unused. Closing Diagnostics releases discovery and the ADB socket; Quit cancels scheduled recovery. Logs and About screens are removed, while bounded internal diagnostics remain.

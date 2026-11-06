@@ -84,10 +84,11 @@ class LocalAdbDiagnostics(context:Context) {
   /** WorkManager boot/watchdog recovery, bounded and disposed without a daemon. */
   suspend fun recoverOnceForWorker() {
     if(preferences.manuallyStopped || !preferences.previouslyAuthorized) return
+    val baseline=state.value.verifiedAt
     enterPage()
     try {
       var elapsed=0
-      while(elapsed<25_000 && !state.value.uidVerified && currentCoroutineContext().isActive) {
+      while(elapsed<25_000 && state.value.verifiedAt<=baseline && currentCoroutineContext().isActive) {
         delay(500)
         elapsed+=500
       }
@@ -124,8 +125,10 @@ class LocalAdbDiagnostics(context:Context) {
     preferences.autoPairCode=enabled
   }
   fun setTcpMode(enabled:Boolean) {
+    val previous=preferences.tcpMode
     preferences.tcpMode=enabled
     if(enabled && visible && preferences.automatic) autoConnect()
+    if(!enabled && previous && preferences.previouslyAuthorized) disconnectTcp()
   }
   fun setStartOnBoot(enabled:Boolean) {
     preferences.startOnBoot=enabled
@@ -154,7 +157,7 @@ class LocalAdbDiagnostics(context:Context) {
     SeqAdbRecoveryWorker.reconcile(app)
     configureWatchdog()
   }
-  fun inspectAutomatic() { inspect("") }
+  fun inspectAutomatic() { inspect() }
   fun disconnectTcp() {
     if(shutDown || state.value.busy) return
     scope.launch {
@@ -209,29 +212,25 @@ class LocalAdbDiagnostics(context:Context) {
     ).filter { tried.add(it) }
     if(ports.isNotEmpty()) runCheck(ports,false)
   }
-  fun connect(portText:String="") {
+  fun connect() = connectDiscovered(null)
+  private fun connectDiscovered(port:Int?) {
     if(shutDown || state.value.busy) return
-    val ports=if(portText.isNotBlank()) {
-      listOfNotNull(AdbAccessPolicy.port(portText))
-    } else {
-      AdbAutoPolicy.candidates(preferences.preferExistingTcp,
-        preferences.previouslyAuthorized,preferences.lastVerifiedPort,
-        state.value.connectPort)
-    }
+    val ports=(listOfNotNull(port)+AdbAutoPolicy.candidates(
+      preferences.preferExistingTcp,preferences.previouslyAuthorized,
+      preferences.lastVerifiedPort,state.value.connectPort)).distinct()
     if(ports.isEmpty()) {
-      state.update { it.copy(message="No ADB endpoint. Enable Wireless debugging and Discover, or enter a port.") }
+      state.update { it.copy(message="No ADB endpoint. Open Wireless debugging and retry automatic discovery.") }
       return
     }
     tried.clear()
     runCheck(ports,false)
   }
-  fun inspect(portText:String="") {
+  fun inspect() {
     if(shutDown || state.value.busy) return
-    val ports=if(portText.isNotBlank()) listOfNotNull(AdbAccessPolicy.port(portText))
-      else AdbAutoPolicy.candidates(preferences.preferExistingTcp,
-        preferences.previouslyAuthorized,preferences.lastVerifiedPort,state.value.connectPort)
+    val ports=AdbAutoPolicy.candidates(preferences.preferExistingTcp,
+      preferences.previouslyAuthorized,preferences.lastVerifiedPort,state.value.connectPort)
     if(ports.isEmpty()) {
-      state.update { it.copy(message="No ADB endpoint. Discover a port or enter one.") }
+      state.update { it.copy(message="No ADB endpoint. Open Wireless debugging and retry automatic discovery.") }
       return
     }
     runCheck(ports,true)
@@ -291,6 +290,7 @@ class LocalAdbDiagnostics(context:Context) {
                   verifiedPort=5555
                 }
                 preferences.markVerified(port)
+                SeqAdbRecoveryWorker.reconcile(app)
                 state.update { it.copy(
                   message="UID 2000 verified • disconnected to save battery",
                   verifiedAt=preferences.lastVerifiedAt,uidVerified=true,
@@ -339,13 +339,13 @@ class LocalAdbDiagnostics(context:Context) {
   }
   fun pairDetectedCode(code:String) {
     if(!preferences.autoPairCode || !visible || shutDown) return
-    val port=state.value.pairingPort ?: return
-    pair(port.toString(),code)
+    if(state.value.pairingPort==null) return
+    pair(code)
   }
-  private fun pair(portText:String,code:String) {
-    val port=AdbAccessPolicy.port(portText)
-    if(port==null || !AdbAccessPolicy.pairingCode(code)) {
-      state.update { it.copy(message="Enter the discovered pairing port and six-digit Android code") }
+  private fun pair(code:String) {
+    val port=state.value.pairingPort ?: return
+    if(!AdbAccessPolicy.pairingCode(code)) {
+      state.update { it.copy(message="Android Settings did not provide a valid six-digit pairing code") }
       return
     }
     if(shutDown || state.value.busy) return
@@ -373,7 +373,7 @@ class LocalAdbDiagnostics(context:Context) {
         }
         if(paired && visible) {
           val portNow=state.value.connectPort
-          if(portNow!=null) scope.launch { delay(350); connect(portNow.toString()) }
+          if(portNow!=null) scope.launch { delay(350); connectDiscovered(portNow) }
           else discover(true)
         }
       }

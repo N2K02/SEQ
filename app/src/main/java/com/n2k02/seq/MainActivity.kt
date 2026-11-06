@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     store = SettingsStore(this)
     adb = LocalAdbDiagnostics(applicationContext)
+    adb.preferences.markUserOpened()
     SeqAdbRecoveryWorker.reconcile(applicationContext)
     SeqUpdater.init(applicationContext)
     setContent {

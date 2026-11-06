@@ -38,17 +38,11 @@ class SeqAdbPreferences(context: Context) {
   var manuallyStopped:Boolean
     get()=prefs.getBoolean("manual_quit",false)
     set(v) {prefs.edit().putBoolean("manual_quit",v).commit()}
-  var verifiedBoot:Int
-    get()=prefs.getInt("verified_boot",-1)
-    private set
+  val verifiedBoot:Int get()=prefs.getInt("verified_boot",-1)
   val currentBoot:Int get()=boot()
   fun markUserOpened() { manuallyStopped=false }
-  var previouslyAuthorized: Boolean
-    get()=prefs.getBoolean("previously_authorized",false)
-    private set
-  var lastVerifiedAt: Long
-    get()=prefs.getLong("verified_at",0L)
-    private set
+  val previouslyAuthorized:Boolean get()=prefs.getBoolean("previously_authorized",false)
+  val lastVerifiedAt:Long get()=prefs.getLong("verified_at",0L)
   private fun boot():Int=runCatching {
     Settings.Global.getInt(app.contentResolver,Settings.Global.BOOT_COUNT,-1)
   }.getOrDefault(-1)
@@ -80,8 +74,8 @@ object AdbAutoPolicy {
     val endpoints=mutableListOf<Int>()
     if(preferTcp) endpoints+=5555
     if(previouslyAuthorized) {
-      if(cachedPort in 1..65535) endpoints+=cachedPort!!
-      if(discoveredPort in 1..65535) endpoints+=discoveredPort!!
+      if(cachedPort != null && cachedPort in 1..65535) endpoints+=cachedPort
+      if(discoveredPort != null && discoveredPort in 1..65535) endpoints+=discoveredPort
     }
     return endpoints.distinct()
   }
