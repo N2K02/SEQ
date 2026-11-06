@@ -10,7 +10,7 @@ class AdbAutoPolicyTest {
     assertNull(AdbAutoPolicy.cachedTlsPort(38813,-1,-1))
     assertNull(AdbAutoPolicy.cachedTlsPort(0,1,1))
   }
-  @Test fun 5555IsOnlyProbedWhenAllowed() {
+  @Test fun tcpPortIsOnlyProbedWhenAllowed() {
     assertEquals(listOf(5555),AdbAutoPolicy.candidates(true,false,null,null))
     assertTrue(AdbAutoPolicy.candidates(false,false,null,null).isEmpty())
   }
