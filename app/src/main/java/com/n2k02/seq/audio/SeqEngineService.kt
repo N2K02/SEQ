@@ -60,6 +60,7 @@ class SeqEngineService : Service() {
     override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = refresh()
     override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) = refresh()
   }
+  @Suppress("UnspecifiedRegisterReceiverFlag")
   override fun onCreate() {
     super.onCreate()
     audio = getSystemService(AUDIO_SERVICE) as AudioManager
