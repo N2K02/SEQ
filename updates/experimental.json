@@ -1,14 +1,14 @@
 {
-  "tag": "v0.3.0-exp-53",
-  "versionCode": 53,
-  "apkUrl": "https://github.com/N2K02/SEQ/releases/download/v0.3.0-exp-53/app-debug.apk",
-  "sha256": "8acfed7e12fc206638f500872f5e18030b88091e852606d53be6816775152d92",
-  "apkSize": 92240268,
+  "tag": "v0.3.0-exp-55",
+  "versionCode": 55,
+  "apkUrl": "https://github.com/N2K02/SEQ/releases/download/v0.3.0-exp-55/SEQ-0.3.0-exp-55.apk",
+  "sha256": "05209d2be7dae57f0585b9315b9e7bf7d16fe544461cfb0f1a80cbb772d3494f",
+  "apkSize": 92240264,
   "notes": [
     "Material 3 Expressive theme and shared updater",
     "Optional measured FIR and 4x intersample peak guard",
     "USB direct PCM16 when supported",
     "Android Auto local music browser"
   ],
-  "publishedAt": "2026-11-06T06:26:08.453861+00:00"
+  "publishedAt": "2026-11-06T06:43:58.331836+00:00"
 }
