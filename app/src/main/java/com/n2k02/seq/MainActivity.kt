@@ -49,6 +49,7 @@ import com.n2k02.seq.audio.SeqMediaLibraryService
 import com.n2k02.seq.audio.SeqMediaSessionListener
 import com.n2k02.seq.audio.SeqEngineService
 import com.n2k02.seq.audio.SeqGlobalEffect
+import com.n2k02.seq.audio.SeqPlaybackMonitor
 import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.model.*
@@ -90,6 +91,7 @@ class MainActivity : ComponentActivity() {
   private var permissionRevision by mutableIntStateOf(0)
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    SeqPlaybackMonitor.start(this)
     // Mirror mRadio: edge-to-edge window with explicit header and navigation insets.
     enableEdgeToEdge()
     store = SettingsStore(this)
@@ -113,6 +115,8 @@ class MainActivity : ComponentActivity() {
       val nativeStatus by SeqRuntime.mediaDsp.collectAsState()
       val externalPlayer by SeqMediaSessionListener.detectedPlayer.collectAsState()
       val mediaListenerConnected by SeqMediaSessionListener.connected.collectAsState()
+      val mediaActive by SeqPlaybackMonitor.mediaActive.collectAsState()
+      val carMode by SeqPlaybackMonitor.carMode.collectAsState()
       val musicStore = remember { LocalMusicLibrary(this@MainActivity) }
       val headphoneStore = remember { HeadphoneProfileStore(this@MainActivity) }
       val impulseStore = remember { MeasuredImpulseStore(this@MainActivity) }
@@ -261,13 +265,15 @@ class MainActivity : ComponentActivity() {
                 SurfaceCard {
                   Text("Detected media",fontWeight=FontWeight.SemiBold)
                   Text(when {
-                    !mediaListenerConnected -> "Enable notification access to detect external players"
                     externalPlayer!=null -> "Playing: "+externalPlayer
-                    else -> "No active media session detected"
-                  },color=quiet,fontSize=12.sp)
+                    mediaActive -> "Media playing"
+                    else -> "No media playing"
+                  } + (if(carMode) " • Android Auto" else "") +
+                    (if(mediaActive && status.globalActive) " • SEQ processing" else ""),
+                    color=if(mediaActive && status.processing) accent else quiet,fontSize=12.sp)
                   if(!mediaListenerConnected) TextButton(onClick={
                     startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                  }) { Text("Grant media detection access") }
+                  }) { Text("Allow notification access (app names + background resume)") }
                   else if(externalPlayer!=null && !status.processing && !settings.allMedia)
                     Text("Player detected; Android has not exposed a compatible audio-effect session.",
                       color=quiet,fontSize=12.sp)

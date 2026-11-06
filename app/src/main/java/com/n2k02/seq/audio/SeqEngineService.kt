@@ -87,6 +87,7 @@ class SeqEngineService : Service() {
     receiverRegistered = true
     audio.registerAudioDeviceCallback(callback, null)
     callbackRegistered = true
+    SeqPlaybackMonitor.start(this)
   }
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == STOP || !settings.read().enabled) {

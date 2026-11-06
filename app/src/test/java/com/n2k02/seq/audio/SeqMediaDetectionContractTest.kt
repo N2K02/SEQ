@@ -47,6 +47,11 @@ class SeqMediaDetectionContractTest {
     assertTrue(engine.contains("SeqGlobalEffect.sync(this)"))
     assertTrue(global.contains("SessionPolicy.shouldProcessAllMedia"))
     assertTrue(global.contains("OUTPUT_MIX = 0"))
+    val monitor=source("java/com/n2k02/seq/audio/SeqPlaybackMonitor.kt")
+    assertTrue(monitor.contains("registerAudioPlaybackCallback"))
+    assertTrue(monitor.contains("ACTION_ENTER_CAR_MODE"))
+    assertTrue(listener.contains("SeqPlaybackMonitor.start(this)"))
+    assertTrue(engine.contains("SeqPlaybackMonitor.start(this)"))
     for(player in listOf("SeqMediaLibraryService.kt","SeqReferencePlayerService.kt"))
       assertTrue(source("java/com/n2k02/seq/audio/$player").contains("SeqOwnedAudioSessions.setPlaying"))
   }

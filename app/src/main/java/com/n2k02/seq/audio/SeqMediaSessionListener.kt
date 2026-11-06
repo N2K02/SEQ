@@ -10,7 +10,6 @@ import android.os.Handler
 import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import com.n2k02.seq.model.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
@@ -40,6 +39,7 @@ class SeqMediaSessionListener : NotificationListenerService() {
     }.onFailure { SeqRuntime.log("Media listener registration: "+it.javaClass.simpleName) }
     runCatching { activeNotifications.orEmpty().forEach(::capture) }
     // System-bound listener: re-establish all-media processing after boot / process restart.
+    SeqPlaybackMonitor.start(this)
     SeqGlobalEffect.sync(this)
     refresh()
   }
@@ -105,19 +105,13 @@ class SeqMediaSessionListener : NotificationListenerService() {
       detectedPlayer.value=next
       SeqRuntime.log(if(next==null) "No external media session playing"
         else "External media player detected: "+next.take(100))
-      onPlaybackChanged(next!=null)
+      onPlaybackChanged()
     }
   }
 
-  /** Media started/stopped in any app (phone or Android Auto): keep SEQ processing it. */
-  private fun onPlaybackChanged(playing:Boolean) {
+  /** Session-level change (names the app); the playback monitor covers start/stop + engine. */
+  private fun onPlaybackChanged() {
     SeqGlobalEffect.sync(this)
-    val s=SettingsStore(this).read()
-    if(!playing || !s.enabled || SeqRuntime.status.value.running) return
-    // Best effort: Android may refuse background FGS starts; the effect still runs in-process.
-    runCatching {
-      startForegroundService(SeqEngineService.intent(this,SeqEngineService.START))
-    }.onFailure { SeqRuntime.log("Engine auto-start deferred: "+it.javaClass.simpleName) }
   }
 
   private fun cleanup() {
