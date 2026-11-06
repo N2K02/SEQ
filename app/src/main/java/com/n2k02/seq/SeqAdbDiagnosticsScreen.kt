@@ -54,6 +54,7 @@ internal fun SeqAdbDiagnosticsScreen(
   var tcp by remember { mutableStateOf(pref.tcpMode) }
   var detailsExpanded by remember { mutableStateOf(false) }
   var audioExpanded by remember { mutableStateOf(false) }
+  var confirmDisableTcp by remember { mutableStateOf(false) }
 
   // The system permission screen can be opened without leaving this Compose
   // route; refresh each grant on the Activity's next onResume.
@@ -69,7 +70,8 @@ internal fun SeqAdbDiagnosticsScreen(
     previouslyVerified=status.uidVerified && status.verifiedAt>0L,
     working=status.busy,
     paired=pref.wasPaired,
-    transport=status.transport
+    transport=status.transport,
+    verifiedThisBoot=pref.currentBoot>=0 && pref.currentBoot==pref.verifiedBoot
   )
   val ink=MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -120,24 +122,26 @@ internal fun SeqAdbDiagnosticsScreen(
       openWirelessDebugging(context)
       adb.discover(true)
     }
-    if(restore) {
-      HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-      PermissionStatusRow(Icons.Rounded.Restore,"Secure settings",
-        if(secure)"Granted" else "Not granted",
-        "Optional privilege for reboot restoration",
-        secure
-      ) {
-        // The permission can be granted by the verified shell during Retry;
-        // Android's Settings app cannot grant it via a regular runtime dialog.
-        adb.connect()
-      }
-    }
+    HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+    PermissionStatusRow(Icons.Rounded.Restore,"Secure settings",
+      when {
+        !restore -> "Optional"
+        secure -> "Granted"
+        else -> "Not granted"
+      },
+      if(restore) "Required only for opted-in reboot restoration"
+        else "Not required while Restore after restart is off",
+      secure,
+      optional=!restore,
+      onClick=if(restore) ({ adb.connect() }) else null
+    )
     if(Build.VERSION.SDK_INT>=33) {
       HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
       PermissionStatusRow(Icons.Rounded.NotificationsNone,"Notifications",
-        if(notifications)"Allowed" else "Blocked",
+        if(notifications)"Allowed" else "Optional",
         "Optional playback and status notifications",
-        notifications
+        notifications,
+        optional=!notifications
       ) {
         openSystemSettings(context,Settings.ACTION_APP_NOTIFICATION_SETTINGS,
           appPackage=context.packageName)
@@ -199,8 +203,10 @@ internal fun SeqAdbDiagnosticsScreen(
       "Can expose ADB to other devices on the network") {
       tcp=it;adb.setTcpMode(it)
     }
-    OutlinedButton(onClick={adb.disconnectTcp()},enabled=!status.busy,
-      modifier=Modifier.fillMaxWidth()) { Text("Disable TCP/5555") }
+    if(tcp || status.transport=="Local TCP/5555") {
+      OutlinedButton(onClick={confirmDisableTcp=true},enabled=!status.busy,
+        modifier=Modifier.fillMaxWidth()) { Text("Disable TCP/5555") }
+    }
   }
 
   DiagnosticSection("SEQ audio diagnostics",Icons.Rounded.GraphicEq) {
@@ -222,6 +228,17 @@ internal fun SeqAdbDiagnosticsScreen(
       }
     }
   }
+  if(confirmDisableTcp) AlertDialog(
+    onDismissRequest={confirmDisableTcp=false},
+    icon={ Icon(Icons.Rounded.WarningAmber,contentDescription=null) },
+    title={ Text("Disable TCP/5555?") },
+    text={ Text("This changes the phone's ADB listener and could interrupt VRec. Continue only when the shared TCP/5555 connection is no longer needed.") },
+    confirmButton={ TextButton(onClick={
+      confirmDisableTcp=false
+      adb.disconnectTcp()
+    }) { Text("Disable TCP") } },
+    dismissButton={ TextButton(onClick={confirmDisableTcp=false}) { Text("Cancel") } }
+  )
 }
 
 @Composable
@@ -255,7 +272,7 @@ private fun SummaryLine(label:String,value:String) {
 }
 @Composable
 private fun PermissionStatusRow(icon:ImageVector,title:String,status:String,
-  subtitle:String,granted:Boolean,onClick:()->Unit) {
+  subtitle:String,granted:Boolean,optional:Boolean=false,onClick:(()->Unit)?=null) {
   Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
     horizontalArrangement=Arrangement.spacedBy(10.dp)) {
     Icon(icon,null,tint=MaterialTheme.colorScheme.onSurfaceVariant,
@@ -267,13 +284,17 @@ private fun PermissionStatusRow(icon:ImageVector,title:String,status:String,
     }
     Column(horizontalAlignment=Alignment.End,verticalArrangement=Arrangement.spacedBy(3.dp)) {
       Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(3.dp)) {
-        Icon(if(granted) Icons.Rounded.CheckCircle else Icons.Rounded.Info,
-          contentDescription=null,modifier=Modifier.size(15.dp),
-          tint=if(granted)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(when {
+          optional -> Icons.Rounded.RemoveCircleOutline
+          granted -> Icons.Rounded.CheckCircle
+          else -> Icons.Rounded.Info
+        }, contentDescription=null,modifier=Modifier.size(15.dp),
+          tint=if(granted && !optional)MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant)
         Text(status,style=MaterialTheme.typography.labelSmall,
           color=MaterialTheme.colorScheme.onSurfaceVariant)
       }
-      if(!granted) TextButton(onClick=onClick,contentPadding=PaddingValues(0.dp)) {
+      if(!granted && onClick!=null) TextButton(onClick=onClick,contentPadding=PaddingValues(0.dp)) {
         Text(if(title=="Secure settings")"Retry" else "Open",style=MaterialTheme.typography.labelMedium)
       }
     }

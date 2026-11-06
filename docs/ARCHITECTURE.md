@@ -35,3 +35,10 @@ Unit tests include tone/headroom calculations and AI output constraints. Native 
 - mDNS discovers local-only services. TCP/5555 migration requires a verified UID 2000 and re-verification after adbd restarts.
 - Optional boot restore respects a same-boot user-off state. WorkManager offers bounded 15-minute recovery if enabled and previously authorized.
 - Quit stops searches and worker, without changing audio DSP permission restrictions.
+
+## VRec parity audit — Diagnostics permission card
+- A separate Permissions card shows Accessibility, ADB UID 2000, optional Secure settings and optional notifications. Secure settings stays visible even when reboot restore is off.
+- Accessibility and notification permissions refresh after returning from Android Settings. A previously authorized UID is never displayed as an active connection, and a prior Android boot's UID is not considered currently verified.
+- Disabling TCP/5555 asks for confirmation because VRec can share the listener.
+- WorkManager owns and disposes isolated ADB diagnostic controllers so it cannot hijack the foreground pairing-code Accessibility owner.
+- VRec recording-only permissions and its capture daemon are intentionally not copied into SEQ.

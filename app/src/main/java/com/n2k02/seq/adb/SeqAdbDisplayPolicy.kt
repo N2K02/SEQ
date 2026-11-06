@@ -6,8 +6,9 @@ data class SeqAdbViewState(
   val transport:String,val authorization:String
 )
 object SeqAdbDisplayPolicy {
-  fun resolve(previouslyVerified:Boolean,working:Boolean,paired:Boolean,transport:String):SeqAdbViewState {
-    val last=previouslyVerified
+  fun resolve(previouslyVerified:Boolean,working:Boolean,paired:Boolean,transport:String,
+    verifiedThisBoot:Boolean=true):SeqAdbViewState {
+    val last=previouslyVerified && verifiedThisBoot
     return SeqAdbViewState(
       previouslyVerified=last,
       shell=if(last)"UID 2000 (last)" else "Unverified",
@@ -17,6 +18,7 @@ object SeqAdbDisplayPolicy {
       authorization=when {
         paired -> "Previously paired"
         last -> "Authorized via ADB"
+        previouslyVerified -> "Reverify this boot"
         else -> "Not authorized"
       }
     )

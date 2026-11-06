@@ -29,10 +29,11 @@ class SeqAdbRecoveryWorker(context:Context,params:WorkerParameters):
     try {
       if(p.restoreAfterRestart) restoreIfEligible(app,p)
       if(LocalAdbDiagnostics.active?.isPageActive()==true) return Result.success()
-      val existing=LocalAdbDiagnostics.active
-      val client=existing ?: LocalAdbDiagnostics(app)
+      // WorkManager cannot replace the foreground Accessibility pairing owner.
+      // Every worker gets a short-lived controller and releases its callbacks.
+      val client=LocalAdbDiagnostics(app,registerAsActive=false)
       try { client.recoverOnceForWorker() }
-      finally { if(existing==null) client.dispose() }
+      finally { client.dispose() }
       return Result.success()
     } catch(cancelled:CancellationException) { throw cancelled }
     catch(e:Exception) { return Result.success() }

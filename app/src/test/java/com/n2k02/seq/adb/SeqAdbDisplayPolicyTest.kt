@@ -22,6 +22,15 @@ class SeqAdbDisplayPolicyTest {
     assertEquals("Unverified",s.shell)
     assertEquals("None",s.transport)
   }
+  @Test fun rememberedUidFromPreviousBootNeedsNewVerification() {
+    val stale=SeqAdbDisplayPolicy.resolve(true,false,false,"Local TCP/5555",
+      verifiedThisBoot=false)
+    assertFalse(stale.previouslyVerified)
+    assertEquals("Unverified",stale.shell)
+    assertEquals("Disconnected (idle)",stale.connection)
+    assertEquals("Reverify this boot",stale.authorization)
+    assertEquals("None",stale.transport)
+  }
   @Test fun pairingIsSeparateFromAuthorization() {
     assertEquals("Previously paired",
       SeqAdbDisplayPolicy.resolve(true,false,true,"Wireless TLS").authorization)

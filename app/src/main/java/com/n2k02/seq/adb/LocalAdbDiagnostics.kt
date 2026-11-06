@@ -37,12 +37,12 @@ object AdbAccessPolicy {
  * A verified UID refers to the LAST check; the socket is always closed after
  * that check. NSD callbacks never cause a connection to any foreign IP.
  */
-class LocalAdbDiagnostics(context:Context) {
+class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=true) {
   companion object {
     @Volatile var active:LocalAdbDiagnostics?=null
       private set
   }
-  init { active=this }
+  init { if(registerAsActive) active=this }
   private val app=context.applicationContext
   val preferences=SeqAdbPreferences(app)
   private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)

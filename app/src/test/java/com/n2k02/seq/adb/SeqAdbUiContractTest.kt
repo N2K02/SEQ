@@ -42,6 +42,9 @@ class SeqAdbUiContractTest {
    assertTrue(permissions.contains("Secure settings"))
    assertTrue(permissions.contains("Notifications"))
    assertTrue(diagnostics.contains("permissionRevision"))
+   assertTrue(diagnostics.contains("verifiedThisBoot="))
+   assertTrue(diagnostics.contains("Optional"))
+   assertTrue(diagnostics.contains("confirmDisableTcp"))
  }
  @Test fun pairingReaderNeverExaminesOtherAppContents() {
    val a=source("adb/SeqPairingAccessibilityService.kt")
