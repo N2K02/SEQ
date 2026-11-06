@@ -13,6 +13,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
@@ -22,8 +23,9 @@ class SeqAdbRecoveryWorker(context:Context,params:WorkerParameters):
   override suspend fun doWork():Result {
     val app=applicationContext
     val p=SeqAdbPreferences(app)
-    if(p.manuallyStopped || !p.automatic || !p.watchdog || !p.startOnBoot ||
-      !p.previouslyAuthorized) return Result.success()
+    val bootRecovery=inputData.getBoolean("boot_recovery",false)
+    if(p.manuallyStopped || !p.automatic || !p.startOnBoot ||
+      !p.previouslyAuthorized || (!bootRecovery && !p.watchdog)) return Result.success()
     try {
       if(p.restoreAfterRestart) restoreIfEligible(app,p)
       if(LocalAdbDiagnostics.active?.isPageActive()==true) return Result.success()
@@ -46,26 +48,37 @@ class SeqAdbRecoveryWorker(context:Context,params:WorkerParameters):
         wm.enqueueUniquePeriodicWork(WATCHDOG,ExistingPeriodicWorkPolicy.KEEP,req)
       } else wm.cancelUniqueWork(WATCHDOG)
     }
+    fun cancelAll(context:Context) {
+      val wm=WorkManager.getInstance(context.applicationContext)
+      wm.cancelUniqueWork(WATCHDOG)
+      wm.cancelUniqueWork(BOOT)
+    }
     fun requestBootRecovery(context:Context) {
       val app=context.applicationContext
       val p=SeqAdbPreferences(app)
       if(p.manuallyStopped || !p.startOnBoot || !p.automatic ||
         !p.previouslyAuthorized) return
       WorkManager.getInstance(app).enqueueUniqueWork(BOOT,ExistingWorkPolicy.REPLACE,
-        OneTimeWorkRequestBuilder<SeqAdbRecoveryWorker>().build())
+        OneTimeWorkRequestBuilder<SeqAdbRecoveryWorker>()
+          .setInputData(workDataOf("boot_recovery" to true)).build())
     }
     /** Only after reboot, never overriding Wireless debugging manually disabled in same boot. */
     private fun restoreIfEligible(context:Context,p:SeqAdbPreferences) {
-      if(Build.VERSION.SDK_INT<30 || !p.wasPaired ||
-        p.currentBoot<0 || p.verifiedBoot<0 || p.currentBoot==p.verifiedBoot) return
-      if(context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")!=
-          PackageManager.PERMISSION_GRANTED) return
       val cm=context.getSystemService(ConnectivityManager::class.java) ?: return
-      if(cm.getNetworkCapabilities(cm.activeNetwork)?.hasTransport(
-          NetworkCapabilities.TRANSPORT_WIFI)!=true) return
+      val wifi=cm.getNetworkCapabilities(cm.activeNetwork)?.hasTransport(
+        NetworkCapabilities.TRANSPORT_WIFI)==true
+      val granted=context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")==
+        PackageManager.PERMISSION_GRANTED
+      if(!SeqAdbRestorePolicy.shouldRestore(p.restoreAfterRestart,p.wasPaired,
+        Build.VERSION.SDK_INT,p.currentBoot,p.verifiedBoot,p.lastRestoreAttemptBoot,
+        granted,wifi)) return
       val enabled=Settings.Global.getInt(context.contentResolver,"adb_wifi_enabled",0)
       if(enabled==1) return
+      p.markRestoreAttempted(p.currentBoot)
       Settings.Global.putInt(context.contentResolver,"adb_wifi_enabled",1)
+      check(Settings.Global.getInt(context.contentResolver,"adb_wifi_enabled",0)==1) {
+        "Android rejected Wireless debugging reboot restoration"
+      }
     }
   }
 }

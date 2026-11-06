@@ -40,6 +40,10 @@ class SeqAdbPreferences(context: Context) {
     set(v) {prefs.edit().putBoolean("manual_quit",v).commit()}
   val verifiedBoot:Int get()=prefs.getInt("verified_boot",-1)
   val currentBoot:Int get()=boot()
+  val lastRestoreAttemptBoot:Int get()=prefs.getInt("restore_attempt_boot",-1)
+  fun markRestoreAttempted(boot:Int) {
+    if(boot>=0) prefs.edit().putInt("restore_attempt_boot",boot).apply()
+  }
   fun markUserOpened() { manuallyStopped=false }
   val previouslyAuthorized:Boolean get()=prefs.getBoolean("previously_authorized",false)
   val lastVerifiedAt:Long get()=prefs.getLong("verified_at",0L)

@@ -546,13 +546,8 @@ class MainActivity : ComponentActivity() {
                   }
                   Text("After verified TLS UID 2000, switches to TCP/5555 and re-verifies. This port can be reachable from your network; disable it when not needed.",
                     color=quiet,style=MaterialTheme.typography.bodySmall)
-                  Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(enabled=!adbStatus.busy,onClick={adb.disconnectTcp()}) {
-                      Text("Disable TCP/5555")
-                    }
-                    OutlinedButton(enabled=!adbStatus.busy,onClick={adb.disconnect()}) {
-                      Text("Disconnect")
-                    }
+                  OutlinedButton(enabled=!adbStatus.busy,onClick={adb.disconnectTcp()}) {
+                    Text("Disable TCP/5555")
                   }
                 }
                 SurfaceCard {

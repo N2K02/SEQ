@@ -85,18 +85,19 @@ class LocalAdbDiagnostics(context:Context) {
   suspend fun recoverOnceForWorker() {
     if(preferences.manuallyStopped || !preferences.previouslyAuthorized) return
     val baseline=state.value.verifiedAt
-    enterPage()
+    enterPage(fromUser=false)
     try {
       var elapsed=0
-      while(elapsed<25_000 && state.value.verifiedAt<=baseline && currentCoroutineContext().isActive) {
+      while(elapsed<25_000 && !preferences.manuallyStopped &&
+        state.value.verifiedAt<=baseline && currentCoroutineContext().isActive) {
         delay(500)
         elapsed+=500
       }
     } finally { leavePage() }
   }
-  fun enterPage() {
-    if(shutDown || visible) return
-    preferences.markUserOpened()
+  fun enterPage(fromUser:Boolean=true) {
+    if(shutDown || visible || (!fromUser && preferences.manuallyStopped)) return
+    if(fromUser) preferences.markUserOpened()
     visible=true
     tried.clear()
     if(preferences.discoverWireless) discover(false)
@@ -135,10 +136,37 @@ class LocalAdbDiagnostics(context:Context) {
     SeqAdbRecoveryWorker.reconcile(app)
   }
   fun setRestoreAfterRestart(enabled:Boolean) {
+    val old=preferences.restoreAfterRestart
     preferences.restoreAfterRestart=enabled
     if(enabled && visible && preferences.automatic) {
       tried.clear()
       connect()
+    } else if(!enabled && old &&
+      app.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED) {
+      // VRec parity: return the optional permission when restore is disabled.
+      scope.launch {
+        operation.withLock {
+          val ports=AdbAutoPolicy.candidates(true,preferences.previouslyAuthorized,
+            preferences.lastVerifiedPort,state.value.connectPort)
+          for(port in ports.take(3)) {
+            try {
+              withTimeout(12_000L) {
+                (if(port==5555) AdbTransport.connect(app,AdbTransport.LOOPBACK,port)
+                  else AdbTransport.connectLocalTls(app,port)).getOrThrow()
+                check(AdbAccessPolicy.verifiedUid(AdbTransport.exec("id -u",6000).getOrThrow()))
+                AdbTransport.exec("pm revoke "+app.packageName+
+                  " android.permission.WRITE_SECURE_SETTINGS",6000).getOrThrow()
+              }
+              break
+            } catch(_:Exception) {
+              // Revocation is best effort if the authorized shell is unavailable.
+            } finally {
+              withContext(NonCancellable) { AdbTransport.close() }
+            }
+          }
+        }
+      }
     }
   }
   fun setAutomatic(enabled:Boolean) {
@@ -340,6 +368,8 @@ class LocalAdbDiagnostics(context:Context) {
   fun pairDetectedCode(code:String) {
     if(!preferences.autoPairCode || !visible || shutDown) return
     if(state.value.pairingPort==null) return
+    // A stale unauthorized 5555 probe must not block the pairing dialog.
+    if(state.value.busy) job?.cancel()
     pair(code)
   }
   private fun pair(code:String) {
@@ -348,7 +378,7 @@ class LocalAdbDiagnostics(context:Context) {
       state.update { it.copy(message="Android Settings did not provide a valid six-digit pairing code") }
       return
     }
-    if(shutDown || state.value.busy) return
+    if(shutDown) return
     job=scope.launch {
       operation.withLock {
         state.update { it.copy(busy=true,message="Pairing with Android…") }
@@ -393,7 +423,7 @@ class LocalAdbDiagnostics(context:Context) {
   fun shutdown() {
     if(active===this) active=null
     preferences.manuallyStopped=true
-    SeqAdbRecoveryWorker.reconcile(app)
+    SeqAdbRecoveryWorker.cancelAll(app)
     shutDown=true
     visible=false
     discovery.stop()
