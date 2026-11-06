@@ -5,6 +5,7 @@ import android.os.SystemClock
 import com.n2k02.seq.audio.SeqRuntime
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -52,6 +53,8 @@ class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=
   @Volatile private var shutDown=false
   @Volatile private var lastAutoMs=0L
   private var watchdog:Job?=null
+  private var pairingUiTimeout:Job?=null
+  @Volatile private var foregroundPage=false
   private var job:Job?=null
   val state=MutableStateFlow(AdbDiagnosticState(
     message=if(preferences.previouslyAuthorized)
@@ -85,21 +88,44 @@ class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=
   fun isPageActive():Boolean=visible
   /** WorkManager boot/watchdog recovery, bounded and disposed without a daemon. */
   suspend fun recoverOnceForWorker() {
-    if(preferences.manuallyStopped || !preferences.previouslyAuthorized) return
+    if(preferences.manuallyStopped || !preferences.previouslyAuthorized || shutDown) return
     val baseline=state.value.verifiedAt
     enterPage(fromUser=false)
     try {
-      var elapsed=0
-      while(elapsed<25_000 && !preferences.manuallyStopped &&
-        state.value.verifiedAt<=baseline && currentCoroutineContext().isActive) {
-        delay(500)
-        elapsed+=500
+      withTimeoutOrNull(25_000L) {
+        state.first { it.verifiedAt > baseline || preferences.manuallyStopped || shutDown }
       }
-    } finally { leavePage() }
+    } finally { leavePageAndAwait() }
+  }
+  /** Worker-owned operation: cancel, await, and bound resource release on stop. */
+  private suspend fun leavePageAndAwait() {
+    visible=false
+    discovery.stop()
+    pairingUiTimeout?.cancel(); pairingUiTimeout=null
+    foregroundPage=false
+    val currentJob=job
+    job=null
+    currentJob?.cancel()
+    watchdog?.cancel(); watchdog=null
+    tried.clear()
+    withContext(NonCancellable) {
+      val closed=withTimeoutOrNull(5_000L) {
+        currentJob?.join()
+        operation.withLock { AdbTransport.close() }
+        true
+      }
+      if(closed!=true) SeqRuntime.log("ADB release exceeded worker deadline")
+    }
+    state.update { it.copy(busy=false,scanning=false,connected=false) }
   }
   fun enterPage(fromUser:Boolean=true) {
-    if(shutDown || visible || (!fromUser && preferences.manuallyStopped)) return
-    if(fromUser) preferences.markUserOpened()
+    if(shutDown || (!fromUser && preferences.manuallyStopped)) return
+    if(fromUser) {
+      preferences.markUserOpened()
+      foregroundPage=true
+      pairingUiTimeout?.cancel();pairingUiTimeout=null
+    }
+    if(visible) return
     visible=true
     tried.clear()
     if(preferences.discoverWireless) discover(false)
@@ -107,15 +133,8 @@ class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=
     configureWatchdog()
   }
   fun leavePage() {
-    visible=false
-    discovery.stop()
-    watchdog?.cancel();watchdog=null
-    job?.cancel();job=null
-    tried.clear()
-    scope.launch {
-      operation.withLock { AdbTransport.close() }
-      state.update { it.copy(busy=false,scanning=false,connected=false) }
-    }
+    if(!visible && job==null) return
+    scope.launch { leavePageAndAwait() }
   }
   fun resumed() {
     if(!visible || shutDown) return
@@ -164,7 +183,10 @@ class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=
             } catch(_:Exception) {
               // Revocation is best effort if the authorized shell is unavailable.
             } finally {
-              withContext(NonCancellable) { AdbTransport.close() }
+              withContext(NonCancellable) {
+      if(withTimeoutOrNull(5_000L) { AdbTransport.close(); true }!=true)
+        SeqRuntime.log("ADB transport close exceeded deadline")
+    }
             }
           }
         }
@@ -203,7 +225,10 @@ class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=
         } catch(e:Exception) {
           state.update { it.copy(message="Could not disable TCP/5555: "+e.javaClass.simpleName) }
         } finally {
-          withContext(NonCancellable) { AdbTransport.close() }
+          withContext(NonCancellable) {
+      if(withTimeoutOrNull(5_000L) { AdbTransport.close(); true }!=true)
+        SeqRuntime.log("ADB transport close exceeded deadline")
+    }
           state.update { it.copy(busy=false,connected=false) }
         }
       }
@@ -307,7 +332,10 @@ class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=
                       port,true,AdbTransport.localTcpListenerPresent())) {
                     AdbTransport.switchToTcpip().getOrThrow()
                   }
-                  withContext(NonCancellable) { AdbTransport.close() }
+                  withContext(NonCancellable) {
+      if(withTimeoutOrNull(5_000L) { AdbTransport.close(); true }!=true)
+        SeqRuntime.log("ADB transport close exceeded deadline")
+    }
                   var tcpVerified=false
                   repeat(12) {
                     if(!tcpVerified) {
@@ -344,7 +372,10 @@ class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=
               error="Port $port: "+e.javaClass.simpleName
               preferences.clearStalePort(port)
             } finally {
-              withContext(NonCancellable) { AdbTransport.close() }
+              withContext(NonCancellable) {
+      if(withTimeoutOrNull(5_000L) { AdbTransport.close(); true }!=true)
+        SeqRuntime.log("ADB transport close exceeded deadline")
+    }
             }
           }
           if(!success && visible) {
@@ -367,7 +398,14 @@ class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=
   }
   fun onAndroidPairingDialogVisible() {
     if(!shutDown && preferences.autoPairCode) {
-      if(!visible) enterPage()
+      if(!visible) {
+        enterPage(fromUser=false)
+        pairingUiTimeout?.cancel()
+        pairingUiTimeout=scope.launch {
+          delay(90_000L)
+          if(!foregroundPage) leavePageAndAwait()
+        }
+      }
       if(!discovery.isActive) discover(true)
     }
   }
@@ -404,7 +442,10 @@ class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=
         } catch(e:Exception) {
           state.update { it.copy(message="Pairing failed • reopen Android pairing dialog") }
         } finally {
-          withContext(NonCancellable) { AdbTransport.close() }
+          withContext(NonCancellable) {
+      if(withTimeoutOrNull(5_000L) { AdbTransport.close(); true }!=true)
+        SeqRuntime.log("ADB transport close exceeded deadline")
+    }
           state.update { it.copy(busy=false,connected=false) }
         }
         if(paired && visible) {
@@ -427,28 +468,29 @@ class LocalAdbDiagnostics(context:Context, private val registerAsActive:Boolean=
     scope.launch { operation.withLock { AdbTransport.close() } }
   }
   fun dispose() {
-    visible=false
-    discovery.stop()
-    watchdog?.cancel();watchdog=null
-    job?.cancel();job=null
     if(active===this) active=null
     scope.launch {
-      withContext(NonCancellable) { operation.withLock { AdbTransport.close() } }
-      scope.cancel()
+      try { leavePageAndAwait() }
+      finally { scope.cancel() }
     }
+  }
+  suspend fun disposeAndAwait() {
+    if(active===this) active=null
+    try { leavePageAndAwait() }
+    finally { scope.cancel() }
   }
   fun shutdown() {
     if(active===this) active=null
     preferences.manuallyStopped=true
     SeqAdbRecoveryWorker.cancelAll(app)
     shutDown=true
-    visible=false
-    discovery.stop()
-    watchdog?.cancel();watchdog=null
-    job?.cancel();job=null
-    scope.coroutineContext.cancelChildren()
-    scope.launch { operation.withLock { AdbTransport.close() } }
-    state.update { it.copy(busy=false,connected=false,scanning=false,
-      message="SEQ ADB stopped") }
+    scope.launch {
+      try { leavePageAndAwait() }
+      finally {
+        state.update { it.copy(busy=false,connected=false,scanning=false,
+          message="SEQ ADB stopped") }
+        scope.cancel()
+      }
+    }
   }
 }

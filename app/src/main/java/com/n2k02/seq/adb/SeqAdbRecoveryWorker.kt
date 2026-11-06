@@ -33,7 +33,7 @@ class SeqAdbRecoveryWorker(context:Context,params:WorkerParameters):
       // Every worker gets a short-lived controller and releases its callbacks.
       val client=LocalAdbDiagnostics(app,registerAsActive=false)
       try { client.recoverOnceForWorker() }
-      finally { client.dispose() }
+      finally { client.disposeAndAwait() }
       return Result.success()
     } catch(cancelled:CancellationException) { throw cancelled }
     catch(e:Exception) { return Result.success() }

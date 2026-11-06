@@ -6,6 +6,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -36,6 +37,7 @@ class SeqMediaLibraryService : MediaLibraryService() {
   }
   private lateinit var player: ExoPlayer
   private lateinit var session: MediaLibrarySession
+  private var ownedAudioSession:Int=0
   private val catalog get() = LocalMusicLibrary(this)
 
   private fun trackItem(track:LocalTrack):MediaItem =
@@ -102,6 +104,21 @@ class SeqMediaLibraryService : MediaLibraryService() {
       }
     }
     player=ExoPlayer.Builder(this,renderers).build()
+    player.addListener(object:Player.Listener {
+      override fun onAudioSessionIdChanged(audioSessionId:Int) {
+        if(ownedAudioSession>0) SeqOwnedAudioSessions.remove(ownedAudioSession)
+        ownedAudioSession=audioSessionId
+        if(audioSessionId>0) SeqOwnedAudioSessions.add(audioSessionId)
+      }
+      override fun onPlayerError(error:androidx.media3.common.PlaybackException) {
+        SeqRuntime.media.value="Playback failed • "+error.errorCodeName
+        SeqRuntime.log("Media playback failed: "+error.errorCodeName)
+      }
+      override fun onIsPlayingChanged(isPlaying:Boolean) {
+        if(isPlaying) SeqRuntime.media.value="Playing"
+        else if(player.playbackState==Player.STATE_READY) SeqRuntime.media.value="Paused"
+      }
+    })
     player.setAudioAttributes(AudioAttributes.Builder()
       .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),true)
     session=MediaLibrarySession.Builder(this,player,callback).build()
@@ -134,6 +151,8 @@ class SeqMediaLibraryService : MediaLibraryService() {
     return super.onStartCommand(intent,flags,startId)
   }
   override fun onDestroy() {
+    if(ownedAudioSession>0) SeqOwnedAudioSessions.remove(ownedAudioSession)
+    ownedAudioSession=0
     session.release()
     player.release()
     SeqRuntime.media.value="Stopped"

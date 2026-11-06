@@ -120,6 +120,7 @@ class HeadphoneProfileStore(context:Context) {
     }
     val obj=JSONObject().put("name",profile.name).put("preamp",profile.preampDb).put("filters",filters)
     prefs.edit().putString("profile",obj.toString()).apply()
+    SeqAudioRevision.changed()
   }
   fun read():HeadphoneProfile? = runCatching {
     val raw=prefs.getString("profile",null) ?: return null
@@ -132,5 +133,8 @@ class HeadphoneProfileStore(context:Context) {
     }
     HeadphoneProfile(json.getString("name"),json.getDouble("preamp"),list).takeIf { it.valid() }
   }.getOrNull()
-  fun clear() { prefs.edit().remove("profile").apply() }
+  fun clear() {
+    prefs.edit().remove("profile").apply()
+    SeqAudioRevision.changed()
+  }
 }

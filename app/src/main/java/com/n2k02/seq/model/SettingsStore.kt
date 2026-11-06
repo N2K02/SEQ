@@ -35,5 +35,6 @@ class SettingsStore(context: Context) {
       .putBoolean("convolution",s.convolution).putBoolean("peak_guard",s.peakGuard)
       .putFloat("peak_ceiling",s.peakCeilingDb.coerceIn(-12f,-0.1f))
       .putBoolean("usb_direct",s.usbDirect).apply()
+    SeqAudioRevision.changed()
   }
 }

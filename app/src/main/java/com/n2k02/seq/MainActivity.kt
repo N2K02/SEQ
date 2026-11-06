@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -96,7 +97,7 @@ class MainActivity : ComponentActivity() {
     SeqUpdater.init(applicationContext)
     setContent {
       var settings by remember { mutableStateOf(store.read()) }
-      var page by remember { mutableStateOf(Page.HOME) }
+      var page by rememberSaveable { mutableStateOf(Page.HOME) }
       BackHandler(enabled=page != Page.HOME && page != Page.SETTINGS) { page=Page.SETTINGS }
       DisposableEffect(page) {
         if(page==Page.DIAGNOSTICS) adb.enterPage()
@@ -113,6 +114,7 @@ class MainActivity : ComponentActivity() {
       val impulseStore = remember { MeasuredImpulseStore(this@MainActivity) }
       var impulse by remember { mutableStateOf(impulseStore.read()) }
       var music by remember { mutableStateOf(musicStore.items()) }
+      var visibleTrackCount by rememberSaveable { mutableIntStateOf(20) }
       var headphones by remember { mutableStateOf(headphoneStore.read()) }
       var importMessage by remember { mutableStateOf("") }
       val pickMusic = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { files ->
@@ -343,10 +345,15 @@ class MainActivity : ComponentActivity() {
                 if(music.isEmpty()) Text("Choose files to populate your Android Auto music library.",color=quiet)
                 else {
                   Text("Library • "+music.size+" tracks",fontWeight=FontWeight.SemiBold)
-                  music.forEach { track ->
+                  music.take(visibleTrackCount).forEach { track ->
                     MenuRow(track.title,"Tap to play with SEQ's PCM processing",Icons.Rounded.MusicNote) {
                       stopService(SeqReferencePlayerService.intent(this@MainActivity,SeqReferencePlayerService.STOP))
                       startService(SeqMediaLibraryService.intent(this@MainActivity,SeqMediaLibraryService.PLAY).setData(track.uri))
+                    }
+                  }
+                  if(music.size>visibleTrackCount) {
+                    TextButton(onClick={ visibleTrackCount=(visibleTrackCount+20).coerceAtMost(music.size) }) {
+                      Text("Show more tracks ("+visibleTrackCount+"/"+music.size+")")
                     }
                   }
                 }

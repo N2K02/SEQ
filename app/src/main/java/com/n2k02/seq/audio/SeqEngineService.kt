@@ -23,6 +23,7 @@ import com.n2k02.seq.model.SettingsStore
 import com.n2k02.seq.model.ToneMath
 import com.n2k02.seq.model.EqResponse
 import com.n2k02.seq.model.HeadphoneProfileStore
+import com.n2k02.seq.audio.SeqOwnedAudioSessions
 
 /**
  * User-started foreground session-effects service.
@@ -46,7 +47,9 @@ class SeqEngineService : Service() {
   private val receiver = object : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
       val id = intent.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, -1)
-      if (id <= 0) return
+      val source = intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME)
+      if (!SessionPolicy.isExternalSession(id,source,packageName) ||
+          SeqOwnedAudioSessions.contains(id)) return
       when (intent.action) {
         AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION -> attach(id)
         AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION -> detach(id)

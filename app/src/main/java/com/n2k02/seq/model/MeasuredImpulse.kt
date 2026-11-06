@@ -48,6 +48,7 @@ class MeasuredImpulseStore(context:Context) {
     ir.left.indices.forEach { i -> buffer.putFloat(ir.left[i]);buffer.putFloat(ir.right[i]) }
     prefs.edit().putString("name",ir.name).putInt("sampleRate",ir.sampleRate)
       .putString("data",Base64.encodeToString(buffer.array(),Base64.NO_WRAP)).apply()
+    SeqAudioRevision.changed()
   }
   fun read():MeasuredImpulse?=runCatching {
     val encoded=prefs.getString("data",null) ?: return null
@@ -60,5 +61,8 @@ class MeasuredImpulseStore(context:Context) {
     MeasuredImpulse(prefs.getString("name","Measured FIR") ?: "Measured FIR",
       prefs.getInt("sampleRate",48000),left,right).takeIf { it.valid() }
   }.getOrNull()
-  fun clear(){prefs.edit().clear().apply()}
+  fun clear(){
+    prefs.edit().clear().apply()
+    SeqAudioRevision.changed()
+  }
 }
