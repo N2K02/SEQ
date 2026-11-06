@@ -39,6 +39,8 @@ jobs:
           fi
       - name: Verify private dependency credential
         run: test -n "$N2K02_PACKAGES_TOKEN" || { echo "::error::N2K02_PACKAGES_TOKEN secret is missing. Configure private GitHub Packages read token in SEQ repository Actions secrets."; exit 1; }
+      - name: Verify updater manifest URL contract
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - name: Compile and run JVM unit tests
         run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest -PseqBuild=${{ github.run_number }}
       - uses: actions/upload-artifact@v4
@@ -81,6 +83,10 @@ jobs:
           test -f "$APK"
           TAG="v0.3.0-exp-$SEQ_RUN"
           NAME="SEQ-0.3.0-exp-$SEQ_RUN.apk"
+          # GitHub CLI's path#label sets only the label, not the asset filename.
+          # Publish a real file with the desired filename, then use that exact asset URL.
+          RENAMED_APK="$RUNNER_TEMP/seq-apk/$NAME"
+          cp "$APK" "$RENAMED_APK"
           NOTES="$RUNNER_TEMP/seq-release-notes.md"
           cat > "$NOTES" <<'EOF'
           Experimental SEQ Hi-Fi Android build with native reference DSP, optional FIR, intersample peak guard, conditional USB direct PCM, Android Auto local media browser, n2k02theme Material 3 Expressive UI, n2k02updater and direct ADB diagnostics.
@@ -89,13 +95,16 @@ jobs:
           
           **Signing:** CI debug signing is not a stable release identity. Later builds may require uninstall/reinstall until a persistent release signing key is configured; never bypass Android installer signature checks.
           EOF
-          gh release create "$TAG" "$APK#$NAME" \
+          gh release create "$TAG" "$RENAMED_APK" \
             --repo N2K02/SEQ --target "$SEQ_SHA" \
             --title "SEQ 0.3 Experimental ($SEQ_RUN)" \
             --notes-file "$NOTES" --prerelease
+          # Reject a successful publish if the advertised APK isn't really an asset.
+          gh release view "$TAG" --repo N2K02/SEQ --json assets \
+            --jq '.assets[].name' | grep -Fxq "$NAME"
           export SEQ_APK_URL="https://github.com/N2K02/SEQ/releases/download/$TAG/$NAME"
-          export SEQ_APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
-          export SEQ_APK_SIZE="$(stat -c%s "$APK")"
+          export SEQ_APK_SHA="$(sha256sum "$RENAMED_APK" | awk '{print $1}')"
+          export SEQ_APK_SIZE="$(stat -c%s "$RENAMED_APK")"
           python3 - <<'PY'
           import os,json,datetime
           obj = dict(tag=os.environ["SEQ_RUN"],versionCode=int(os.environ["SEQ_RUN"]),
@@ -109,6 +118,8 @@ jobs:
           with open(os.environ["RUNNER_TEMP"]+"/experimental.json","w") as f:
             json.dump(obj,f,indent=2)
           PY
+          # Validate contract while scripts are still available on the source branch.
+          python3 scripts/check_updater_manifest.py "$RUNNER_TEMP/experimental.json" "$NAME"
           # Update the separate public manifest branch, not the experimental PR.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

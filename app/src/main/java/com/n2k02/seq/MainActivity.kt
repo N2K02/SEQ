@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import dev.n2k02.theme.N2K02Theme
 import dev.n2k02.updater.N2K02UpdateBadge
@@ -88,6 +89,8 @@ class MainActivity : ComponentActivity() {
   private lateinit var adb: LocalAdbDiagnostics
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    // Mirror mRadio: edge-to-edge window with explicit header and navigation insets.
+    enableEdgeToEdge()
     store = SettingsStore(this)
     adb = LocalAdbDiagnostics(applicationContext)
     adb.preferences.markUserOpened()
@@ -183,7 +186,17 @@ class MainActivity : ComponentActivity() {
         Scaffold(containerColor = background,
           topBar = { Header(page.title, pageIcon(page)) },
           bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+            // Match mRadio: keep gesture/navigation-bar region opaque and below content.
+            Surface(
+              color = MaterialTheme.colorScheme.surface,
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Column(Modifier.navigationBarsPadding()) {
+                NavigationBar(
+                  containerColor = MaterialTheme.colorScheme.surface,
+                  tonalElevation = 0.dp,
+                  windowInsets = WindowInsets(0, 0, 0, 0)
+                ) {
               NavigationBarItem(selected = page == Page.HOME, onClick = { page = Page.HOME },
                 icon = { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
               NavigationBarItem(selected = page != Page.HOME, onClick = { page = Page.SETTINGS },
@@ -200,6 +213,8 @@ class MainActivity : ComponentActivity() {
                 stopService(SeqMediaLibraryService.intent(this@MainActivity, SeqMediaLibraryService.STOP))
                 finishAffinity()
               }, icon = { Icon(Icons.Rounded.PowerSettingsNew, null) }, label = { Text("Quit") })
+                }
+              }
             }
           }
         ) { padding ->
@@ -588,7 +603,11 @@ class MainActivity : ComponentActivity() {
   }
 }
 @Composable private fun Header(title: String, icon: ImageVector) {
-  Row(Modifier.fillMaxWidth().background(background).padding(horizontal = 18.dp, vertical = 16.dp),
+  Row(
+    Modifier.fillMaxWidth()
+      .background(MaterialTheme.colorScheme.surface)
+      .statusBarsPadding()
+      .padding(horizontal = 20.dp, vertical = 10.dp),
     verticalAlignment = Alignment.CenterVertically) {
     Icon(icon, null, tint = MaterialTheme.colorScheme.onSurface)
     Spacer(Modifier.width(10.dp))
