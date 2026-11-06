@@ -41,8 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.n2k02.seq.ai.OnDeviceTuner
-import com.n2k02.seq.ai.TuningSuggestion
 import com.n2k02.seq.audio.LocalMusicLibrary
 import com.n2k02.seq.audio.LocalTrack
 import com.n2k02.seq.audio.SeqMediaLibraryService
@@ -50,6 +48,7 @@ import com.n2k02.seq.audio.SeqMediaSessionListener
 import com.n2k02.seq.audio.SeqEngineService
 import com.n2k02.seq.audio.SeqGlobalEffect
 import com.n2k02.seq.audio.SeqPlaybackMonitor
+import com.n2k02.seq.audio.SeqAdaptiveAnalyzer
 import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.model.*
@@ -67,20 +66,14 @@ private val background: Color @Composable get() = MaterialTheme.colorScheme.back
 private val panel: Color @Composable get() = MaterialTheme.colorScheme.surfaceContainerLow
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
-  HOME("Home"), SETTINGS("Settings"), EQ("Equalizer"), FIDELITY("Advanced Audio"), PLAYER("Music Library"), DEVICES("Device Profiles"),
-  AUTO("Android Auto"), AI("AI Assistant"), DIAGNOSTICS("Diagnostics"),
+  HOME("Home"), SETTINGS("Settings"), PLAYER("Music Library"), DIAGNOSTICS("Diagnostics"),
   UPDATES("Updates")
 }
 
 private fun pageIcon(page:Page):ImageVector = when(page) {
   Page.HOME -> Icons.Rounded.Home
   Page.SETTINGS -> Icons.Rounded.Settings
-  Page.EQ -> Icons.Rounded.Tune
-  Page.FIDELITY -> Icons.Rounded.GraphicEq
   Page.PLAYER -> Icons.Rounded.MusicNote
-  Page.DEVICES -> Icons.Rounded.Headphones
-  Page.AUTO -> Icons.Rounded.DirectionsCar
-  Page.AI -> Icons.Rounded.Memory
   Page.DIAGNOSTICS -> Icons.Rounded.MonitorHeart
   Page.UPDATES -> Icons.Rounded.SystemUpdate
 }
@@ -117,13 +110,10 @@ class MainActivity : ComponentActivity() {
       val mediaListenerConnected by SeqMediaSessionListener.connected.collectAsState()
       val mediaActive by SeqPlaybackMonitor.mediaActive.collectAsState()
       val carMode by SeqPlaybackMonitor.carMode.collectAsState()
+      val adaptiveOn = remember(permissionRevision) { SeqAdaptiveAnalyzer.permitted(this@MainActivity) }
       val musicStore = remember { LocalMusicLibrary(this@MainActivity) }
-      val headphoneStore = remember { HeadphoneProfileStore(this@MainActivity) }
-      val impulseStore = remember { MeasuredImpulseStore(this@MainActivity) }
-      var impulse by remember { mutableStateOf(impulseStore.read()) }
       var music by remember { mutableStateOf(musicStore.items()) }
       var visibleTrackCount by rememberSaveable { mutableIntStateOf(20) }
-      var headphones by remember { mutableStateOf(headphoneStore.read()) }
       var importMessage by remember { mutableStateOf("") }
       val pickMusic = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { files ->
         if(files.isNotEmpty()) {
@@ -134,40 +124,6 @@ class MainActivity : ComponentActivity() {
             music = musicStore.add(files)
             importMessage = "Music added: " + files.size
           }.onFailure { importMessage = "Import failed: " + (it.message ?: it.javaClass.simpleName) }
-        }
-      }
-      val pickImpulse = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if(uri!=null) {
-          runCatching {
-            val name=contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { c ->
-              if(c.moveToFirst()) c.getString(0) else null
-            } ?: "Measured impulse response"
-            val response=contentResolver.openInputStream(uri)?.use { stream ->
-              MeasuredImpulseImport.parse(name,stream)
-            } ?: error("Unable to read impulse response")
-            impulseStore.save(response)
-            impulse=response
-            importMessage="FIR imported: "+response.name
-          }.onFailure { importMessage="IR import failed: "+(it.message?:it.javaClass.simpleName) }
-        }
-      }
-      val pickCorrection = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if(uri!=null) {
-          runCatching {
-            val name=contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { c ->
-              if(c.moveToFirst()) c.getString(0) else null
-            } ?: "Headphone preset"
-            val raw=contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-              ?: error("Cannot read preset")
-            val p=AutoEqImport.parse(name,raw)
-            headphoneStore.save(p)
-            headphones=p
-            val next=settings.copy(headphoneCorrection=true)
-            settings=next
-            store.write(next)
-            if(next.enabled) startService(SeqEngineService.intent(this@MainActivity,SeqEngineService.REFRESH))
-            importMessage="Correction imported: " + p.name
-          }.onFailure { importMessage="Import failed: " + (it.message ?: it.javaClass.simpleName) }
         }
       }
       val pickWav = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -184,6 +140,7 @@ class MainActivity : ComponentActivity() {
         settings = next
         store.write(next)
         SeqGlobalEffect.sync(this)
+        SeqAdaptiveAnalyzer.sync(this, SeqPlaybackMonitor.mediaActive.value)
         if (!next.enabled) stopService(SeqEngineService.intent(this, SeqEngineService.STOP))
         else {
           val command = if (status.running) SeqEngineService.REFRESH else SeqEngineService.START
@@ -243,22 +200,15 @@ class MainActivity : ComponentActivity() {
                         }, color = if (status.processing) accent else quiet)
                     }
                     Switch(checked = settings.enabled, onCheckedChange = {
-                      if (it && Build.VERSION.SDK_INT >= 33 &&
-                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-                        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 109)
+                      if (it) {
+                        // One prompt: notifications (engine) + output analysis for SEQ Auto.
+                        val wanted = buildList {
+                          if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+                          add(Manifest.permission.RECORD_AUDIO)
+                        }.filter { p -> checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED }
+                        if (wanted.isNotEmpty()) requestPermissions(wanted.toTypedArray(), 109)
+                      }
                       update(settings.copy(enabled = it))
-                    })
-                  }
-                }
-                SurfaceCard {
-                  Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.weight(1f)) {
-                      Text("All media", fontWeight = FontWeight.SemiBold)
-                      Text(if (settings.allMedia) "Every app, incl. Android Auto"
-                        else "Only apps that open an effect session", color = quiet, fontSize = 12.sp)
-                    }
-                    Switch(checked = settings.allMedia, onCheckedChange = {
-                      update(settings.copy(allMedia = it))
                     })
                   }
                 }
@@ -274,34 +224,28 @@ class MainActivity : ComponentActivity() {
                   if(!mediaListenerConnected) TextButton(onClick={
                     startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                   }) { Text("Allow notification access (app names + background resume)") }
-                  else if(externalPlayer!=null && !status.processing && !settings.allMedia)
-                    Text("Player detected; Android has not exposed a compatible audio-effect session.",
-                      color=quiet,fontSize=12.sp)
                 }
                 SurfaceCard {
-                  Text("Listening Profile", color = quiet, fontSize = 13.sp)
+                  Text("Sound", color = quiet, fontSize = 13.sp)
                   Spacer(Modifier.height(6.dp))
                   Text(settings.profile.title, fontWeight = FontWeight.Bold, fontSize = 25.sp)
                   Text(settings.profile.subtitle, color = quiet, fontSize = 13.sp)
+                  if (settings.profile == AudioProfile.AUTO) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("Tuned for " + status.route +
+                      (if (mediaActive && adaptiveOn) " • adapting to your music" else ""),
+                      color = accent, fontSize = 12.sp)
+                    if (!adaptiveOn && settings.enabled) TextButton(onClick = {
+                      requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 110)
+                    }) { Text("Let SEQ adapt to your music") }
+                  }
                   Spacer(Modifier.height(12.dp))
-                  Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AudioProfile.entries.forEach { p ->
                       FilterChip(selected = settings.profile == p,
                         onClick = { update(settings.copy(profile = p)) },
-                        label = { Text(p.name.lowercase().replaceFirstChar { it.uppercase() }, fontSize = 12.sp) },
+                        label = { Text(p.title, fontSize = 13.sp) },
                         modifier = Modifier.weight(1f))
-                    }
-                  }
-                }
-                SurfaceCard {
-                  Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Headphones, null, tint = accent)
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                      Text("Output Device", color = quiet, fontSize = 12.sp)
-                      Text(status.route, fontWeight = FontWeight.SemiBold)
-                      Text(if (status.carProfileActive) "Car profile selected" else "Default device profile",
-                        color = quiet, fontSize = 12.sp)
                     }
                   }
                 }
@@ -322,49 +266,11 @@ class MainActivity : ComponentActivity() {
                 }
               }
               Page.SETTINGS -> {
-                MenuRow("Equalizer", "Precision tone controls", Icons.Rounded.Tune) { page = Page.EQ }
-                MenuRow("Advanced Audio", "Loudness • limiter • FIR • USB direct", Icons.Rounded.GraphicEq) { page = Page.FIDELITY }
-                MenuRow("Device Profiles", "Headphones and output routes", Icons.Rounded.Headphones) { page = Page.DEVICES }
                 MenuRow("Music Library", "Lossless player • Android Auto", Icons.Rounded.PlayCircle) { page = Page.PLAYER }
-                MenuRow("Android Auto", "Car profile and compatibility", Icons.Rounded.DirectionsCar) { page = Page.AUTO }
-                MenuRow("AI Assistant", if (settings.aiEnabled) "On-device • optional" else "Optional • Off", Icons.Rounded.Memory) { page = Page.AI }
                 HorizontalDivider(Modifier.padding(vertical = 10.dp), color = quiet.copy(alpha = 0.25f))
                 MenuRow("Diagnostics", "Direct ADB • Audio sessions", Icons.Rounded.MonitorHeart) { page = Page.DIAGNOSTICS }
                 MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",
                   Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
-              }
-              Page.EQ -> {
-                Text("Adjustments stay small to preserve the recording.", color = quiet)
-                if (settings.profile == AudioProfile.PURE) Text("Pure bypass ignores EQ values.", color = accent)
-                ToneControls(settings.customTone) { update(settings.copy(customTone = it)) }
-                HorizontalDivider(color = quiet.copy(alpha = .2f))
-                Text("Headphone correction", fontWeight = FontWeight.SemiBold)
-                Text("Import AutoEq / Equalizer APO measured parametric preset. No large bundled database.",color=quiet,fontSize=12.sp)
-                ToggleRow("Apply headphone correction",settings.headphoneCorrection) {
-                  update(settings.copy(headphoneCorrection = it))
-                }
-                Text(headphones?.let { it.name + " • " + it.filters.size + " filters" } ?: "No imported correction",color=accent)
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                  OutlinedButton(onClick={ pickCorrection.launch(arrayOf("text/plain","*/*")) }) {
-                    Text("Import preset")
-                  }
-                  OutlinedButton(onClick={
-                    headphoneStore.clear(); headphones=null
-                    update(settings.copy(headphoneCorrection=false))
-                  }) { Text("Clear") }
-                }
-                Text("Native playback applies individual filters; external app EQ approximates correction using OEM bands.",color=quiet,fontSize=12.sp)
-                if(importMessage.isNotBlank()) Text(importMessage,color=quiet,fontSize=12.sp)
-                headphones?.let { current ->
-                  AdvancedFilters(current) { edited ->
-                    headphoneStore.save(edited)
-                    headphones=edited
-                    update(settings.copy(headphoneCorrection=true))
-                  }
-                }
-                Text("Android-compatible fixed-band EQ. Native precise DSP is not injected into other apps.",
-                  color = quiet, fontSize = 12.sp)
-                TextButton(onClick = { update(settings.copy(customTone = Tone())) }) { Text("Reset to neutral") }
               }
               Page.PLAYER -> {
                 Text("Native SEQ DSP playback and Android Auto music browsing.",color=quiet)
@@ -412,100 +318,6 @@ class MainActivity : ComponentActivity() {
                   stopService(SeqReferencePlayerService.intent(this@MainActivity,SeqReferencePlayerService.STOP))
                 }) { Text("Stop reference playback") }
               }
-              Page.FIDELITY -> {
-                Text("Optional measured processing",style=MaterialTheme.typography.titleMedium)
-                Text("Reference remains neutral. Enable only the processing your equipment needs.",
-                  color=quiet,style=MaterialTheme.typography.bodySmall)
-                SurfaceCard {
-                  ToggleRow("Volume-adaptive loudness",settings.loudness) {
-                    update(settings.copy(loudness=it))
-                  }
-                  Text("Keeps bass and treble balanced at low volume (equal-loudness). Off in the car and in Pure.",
-                    color=quiet,style=MaterialTheme.typography.bodySmall)
-                }
-                SurfaceCard {
-                  ToggleRow("Lookahead peak limiter",settings.peakGuard) {
-                    update(settings.copy(peakGuard=it))
-                  }
-                  Text("Keeps EQ boosts loud without clipping: half headroom plus a 4× intersample lookahead limiter, for all media and SEQ playback. Not a certified ITU true-peak meter.",
-                    color=quiet,style=MaterialTheme.typography.bodySmall)
-                  if(settings.peakGuard) {
-                    Text("Ceiling: "+String.format(Locale.US,"%.1f dB",settings.peakCeilingDb))
-                    Slider(value=settings.peakCeilingDb,valueRange=-6f..-0.5f,
-                      onValueChange={ update(settings.copy(peakCeilingDb=it)) })
-                  }
-                }
-                SurfaceCard {
-                  ToggleRow("Measured FIR convolution",settings.convolution) {
-                    update(settings.copy(convolution=it))
-                  }
-                  Text(impulse?.let { it.name+" • "+it.sampleRate+" Hz • "+it.left.size+" taps" }
-                    ?: "No measured response imported",color=quiet,style=MaterialTheme.typography.bodySmall)
-                  Text("Import a measured stereo 16-bit PCM WAV response, 256 taps maximum. Sample rate must match the source; CPU usage rises when enabled.",
-                    color=quiet,style=MaterialTheme.typography.bodySmall)
-                  Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick={pickImpulse.launch(arrayOf("audio/wav","audio/x-wav","audio/*"))}) {
-                      Text("Import IR")
-                    }
-                    OutlinedButton(onClick={impulseStore.clear();impulse=null
-                      update(settings.copy(convolution=false))}) { Text("Clear") }
-                  }
-                }
-                SurfaceCard {
-                  ToggleRow("USB direct PCM16 WAV",settings.usbDirect) {
-                    update(settings.copy(usbDirect=it))
-                  }
-                  Text("Android 14+ only. Requires Pure profile and a compatible USB DAC with a BIT_PERFECT mixer mode. No EQ, FIR, peak guard or conversion is applied.",
-                    color=quiet,style=MaterialTheme.typography.bodySmall)
-                  Text("Open a WAV with Reference Player controls under Music Library. If hardware support or routing cannot be verified, playback stops instead of silently falling back.",
-                    color=quiet,style=MaterialTheme.typography.bodySmall)
-                }
-                if(importMessage.isNotBlank()) Text(importMessage,color=quiet)
-              }
-              Page.DEVICES -> {
-                Text("Profiles are stored locally; system EQ support depends on the source music app.", color = quiet)
-                MenuRow("Audio route", status.route, Icons.Rounded.Headphones, onClick = {})
-                OutlinedTextField(value = settings.carDeviceName, onValueChange = {
-                  update(settings.copy(carDeviceName = it.take(100))) },
-                  label = { Text("Car Bluetooth device name (exact match)") }, modifier = Modifier.fillMaxWidth())
-                Text("Only a match among connected outputs is detected, not a verified playback route.", color = quiet, fontSize = 12.sp)
-              }
-              Page.AUTO -> {
-                Text("SEQ now exposes a real local music library to compatible Android Auto media browsers. Add files under Music Library before connecting. Third-party EQ remains session dependent.", color = quiet)
-                ToggleRow("Automatic car profile", settings.automaticCarProfile) { update(settings.copy(automaticCarProfile = it)) }
-                ToggleRow("Car profile manually selected", settings.carManual) { update(settings.copy(carManual = it)) }
-                Text("Android Auto displays the car-safe music library; no EQ controls are exposed while driving. Car profile selection is explicit or by matching a known connected Bluetooth device.", color = quiet, fontSize = 12.sp)
-                Text("Car EQ adjustment", fontWeight = FontWeight.SemiBold)
-                ToneControls(settings.carTone) { update(settings.copy(carTone = it)) }
-              }
-              Page.AI -> {
-                ToggleRow("Enable on-device assistant", settings.aiEnabled) { update(settings.copy(aiEnabled = it)) }
-                Text("Uses Android AICore's installed Gemini Nano when available. Runs only on request and never listens to music.", color = quiet, fontSize = 13.sp)
-                if (settings.aiEnabled) {
-                  var prompt by remember { mutableStateOf("") }
-                  var aiMessage by remember { mutableStateOf("") }
-                  var proposal by remember { mutableStateOf<TuningSuggestion?>(null) }
-                  var busy by remember { mutableStateOf(false) }
-                  OutlinedTextField(value = prompt, onValueChange = { prompt = it.take(300) },
-                    label = { Text("Describe desired tuning") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-                  Button(enabled = !busy && prompt.isNotBlank(), onClick = {
-                    busy = true
-                    proposal = null
-                    scope.launch {
-                      val result = withContext(Dispatchers.Default) { OnDeviceTuner.suggest(prompt, settings.customTone) }
-                      proposal = result.getOrNull()
-                      aiMessage = result.fold({ it.explanation }, { it.message ?: "AI unavailable" })
-                      busy = false
-                    }
-                  }) { Text(if (busy) "Analysing…" else "Suggest EQ adjustment") }
-                  if (aiMessage.isNotBlank()) Text(aiMessage, color = quiet)
-                  proposal?.let { p ->
-                    Button(onClick = { update(settings.copy(customTone = p.tone)); proposal = null }) {
-                      Text("Apply suggested adjustment")
-                    }
-                  }
-                }
-              }
               Page.DIAGNOSTICS -> {
                 SeqAdbDiagnosticsScreen(
                   context=this@MainActivity,
@@ -534,6 +346,7 @@ class MainActivity : ComponentActivity() {
   override fun onResume() {
     super.onResume()
     permissionRevision++ // Refresh live Android grants after returning from system Settings.
+    SeqAdaptiveAnalyzer.sync(this, SeqPlaybackMonitor.mediaActive.value)
     adb.resumed()
     SeqUpdater.onResume(this)
   }
@@ -583,80 +396,4 @@ class MainActivity : ComponentActivity() {
     },
     colors=ListItemDefaults.colors(containerColor=MaterialTheme.colorScheme.background)
   )
-}
-@Composable private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-  Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-    Text(label, Modifier.weight(1f))
-    Switch(checked = checked, onCheckedChange = onChange)
-  }
-}
-@Composable private fun ToneControls(tone: Tone, update: (Tone) -> Unit) {
-  Column {
-    GainSlider("Bass", tone.bass) { update(tone.copy(bass = it)) }
-    GainSlider("Mid", tone.mid) { update(tone.copy(mid = it)) }
-    GainSlider("Treble", tone.treble) { update(tone.copy(treble = it)) }
-  }
-}
-@Composable private fun GainSlider(label: String, gain: Float, update: (Float) -> Unit) {
-  Row(verticalAlignment = Alignment.CenterVertically) {
-    Text(label, modifier = Modifier.weight(1f), color = quiet)
-    Text(String.format(Locale.US, "%+.1f dB", gain), color = accent)
-  }
-  var localGain by remember(gain) { mutableFloatStateOf(gain) }
-  Slider(value = localGain, onValueChange = { localGain = (it * 2).toInt() / 2f },
-    onValueChangeFinished = { update(localGain) },
-    valueRange = -6f..6f, steps = 23, modifier = Modifier.fillMaxWidth())
-}
-@Composable private fun SelectionText(value: String) {
-  Surface(shape = RoundedCornerShape(10.dp), color = panel) {
-    Text(value, modifier = Modifier.fillMaxWidth().padding(12.dp), fontSize = 12.sp, color = quiet)
-  }
-}
-
-// Advanced parametric editor is collapsed by default to preserve the compact UI.
-@Composable private fun AdvancedFilters(
-  profile: HeadphoneProfile,
-  onSave: (HeadphoneProfile)->Unit
-) {
-  var expanded by remember { mutableStateOf(false) }
-  var draft by remember(profile) { mutableStateOf(profile) }
-  TextButton(onClick = { expanded=!expanded }) {
-    Text(if(expanded) "Hide advanced filters" else "Edit parametric filters ("+profile.filters.size+")")
-  }
-  if(!expanded) return
-  Text("Individual frequencies, gains and Q values • native playback only.",color=quiet,fontSize=12.sp)
-  draft.filters.forEachIndexed { i, band ->
-    SurfaceCard {
-      Row(verticalAlignment=Alignment.CenterVertically) {
-        Text("Filter "+(i+1),Modifier.weight(1f),fontWeight=FontWeight.SemiBold)
-        Switch(checked=band.enabled,onCheckedChange={ value ->
-          draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(enabled=value) })
-        })
-      }
-      Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-        FilterKind.entries.forEach { kind ->
-          FilterChip(selected=band.kind==kind,onClick={
-            draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(kind=kind) })
-          },label={Text(kind.name.replace("_"," "),fontSize=10.sp)})
-        }
-      }
-      Text("Frequency: "+band.frequency.toInt()+" Hz",color=quiet,fontSize=12.sp)
-      val value=(kotlin.math.log10(band.frequency/20.0)/3.0).toFloat().coerceIn(0f,1f)
-      Slider(value=value,onValueChange={ x ->
-        val freq=20.0*Math.pow(1000.0,x.toDouble())
-        draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(frequency=freq) })
-      })
-      Text("Gain: "+String.format(Locale.US,"%+.1f dB",band.gain),color=quiet,fontSize=12.sp)
-      Slider(value=band.gain.toFloat(),valueRange=-12f..12f,steps=47,onValueChange={ x ->
-        draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(gain=x.toDouble()) })
-      })
-      Text("Q: "+String.format(Locale.US,"%.2f",band.q),color=quiet,fontSize=12.sp)
-      Slider(value=band.q.toFloat(),valueRange=0.15f..12f,onValueChange={ x ->
-        draft=draft.copy(filters=draft.filters.toMutableList().also { it[i]=band.copy(q=x.toDouble()) })
-      })
-    }
-  }
-  OutlinedButton(enabled=draft.valid(),onClick={ onSave(draft);expanded=false }) {
-    Text("Save precise filters")
-  }
 }

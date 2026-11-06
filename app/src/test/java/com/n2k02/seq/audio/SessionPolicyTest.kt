@@ -38,12 +38,14 @@ class SessionPolicyTest {
     assertFalse(SessionPolicy.shouldProcessAllMedia(global.copy(profile=AudioProfile.PURE), false))
     assertFalse(SessionPolicy.shouldProcessAllMedia(active, false))
   }
-  @Test fun carProfileFollowsAndroidAutoCarModeOrNamedDevice() {
-    assertTrue(CarPolicy.isCar(manual=true, automatic=false, carMode=false, namedDeviceConnected=false))
-    assertTrue(CarPolicy.isCar(manual=false, automatic=true, carMode=true, namedDeviceConnected=false))
-    assertTrue(CarPolicy.isCar(manual=false, automatic=true, carMode=false, namedDeviceConnected=true))
-    assertFalse(CarPolicy.isCar(manual=false, automatic=false, carMode=true, namedDeviceConnected=true))
-    assertFalse(CarPolicy.isCar(manual=false, automatic=true, carMode=false, namedDeviceConnected=false))
+  @Test fun routeKindIsAutomatic() {
+    val bt=android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+    val wired=android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+    val speaker=android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+    assertEquals(RouteKind.CAR, RoutePolicy.kind(true, listOf(bt)))
+    assertEquals(RouteKind.WIRED, RoutePolicy.kind(false, listOf(speaker, bt, wired)))
+    assertEquals(RouteKind.BLUETOOTH, RoutePolicy.kind(false, listOf(speaker, bt)))
+    assertEquals(RouteKind.SPEAKER, RoutePolicy.kind(false, listOf(speaker)))
   }
   @Test fun ownPlaybackStateReportsOnlyTransitions() {
     assertTrue(SeqOwnedAudioSessions.setPlaying("a", true))

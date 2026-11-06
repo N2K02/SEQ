@@ -36,7 +36,7 @@ class SeqMediaDetectionContractTest {
     assertTrue(manifest.contains("SeqMediaSessionListener"))
     assertTrue(activity.contains("ACTION_NOTIFICATION_LISTENER_SETTINGS"))
     assertTrue(activity.contains("SeqMediaSessionListener.detectedPlayer.collectAsState()"))
-    assertTrue(activity.contains("!status.processing"))
+    assertTrue(activity.contains("SeqPlaybackMonitor.mediaActive.collectAsState()"))
   }
   @Test fun playbackChangesDriveAllMediaEffectForPhoneAndAndroidAuto() {
     val listener=source("java/com/n2k02/seq/audio/SeqMediaSessionListener.kt")

@@ -9,8 +9,14 @@
 - Car profile: manual, named Bluetooth device, or Android Auto car UI mode (`SeqRoute`). No compressor, reverb, spatializer, loudness maximizer, or automatic music analysis.
 - Direct ADB is **on demand**, using a localhost-only embedded ADB client with a separate persisted key. SEQ verifies the result of `id -u` is precisely 2000, runs fixed read-only audio commands, and immediately disconnects. No Shizuku, UserService, root, or TCP/5555 enable operation.
 - Android Auto route correction is **conditional** on attachable music session and user-specified Bluetooth output matching or explicit car mode. A connected output is not necessarily the active media route. No car-screen app is advertised because SEQ is not a media player.
-- AI is **foreground-only / opt-in** and uses an installed Google AICore model if supported. Output is parsed as three bounded EQ suggestions and applied only when user confirms. No continuous microphone, audio, or GPU workload.
 - Native DSP supports 16 biquads (3 tone bands + up to 12 imported), conservative headroom and allocation-free per-frame processing. It is connected to local Media3 decoded PCM16 and reference WAV playback, not injected into third-party apps.
+
+## SEQ Auto — automatic sound engine (default)
+No sliders. Two choices only: **SEQ Auto** or **Pure**. `AutoSound` composes, per path:
+1. **Output-aware balance** (`RoutePolicy`): phone speaker (bass protection, presence), wired/USB headphones (Harman-style bass shelf), Bluetooth (gentle lift), Android Auto car mode (road-noise bass/treble lift, slight mid scoop).
+2. **Adaptive music correction** (`SeqAdaptiveAnalyzer`): Visualizer on the output mix, 2 FFT reads/s only while media plays, 4 s averaged octave spectrum compared with a typical music spectrum; corrects half the deviation, ±3 dB cap, smoothed, applied only when ≥0.4 dB changes. Needs RECORD_AUDIO (Android's permission for output analysis); the microphone is never opened and nothing is stored. Without it, Auto uses 1 + 3.
+3. **Volume-adaptive loudness** (not in the car) and always-on limiter with smart headroom.
+Generative AI (Gemini Nano assistant) was removed: it cannot hear audio and added settings, not sound quality.
 
 ## Sound quality (engine investigation 2026-11-06)
 - **Headroom vs loudness:** a +6 dB boost previously cost 6 dB of overall loudness (full headroom), which listeners perceive as worse. With the limiter on (default), headroom is halved and a lookahead limiter catches remaining peaks — native and DynamicsProcessing paths alike.

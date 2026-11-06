@@ -102,6 +102,7 @@ object SeqPlaybackMonitor {
     mediaActive.value = active
     SeqRuntime.log(if (active) "Media playback detected" else "Media playback stopped")
     resync()
+    app?.let { SeqAdaptiveAnalyzer.sync(it, active) }
     if (active) app?.let(::startEngine)
   }
 

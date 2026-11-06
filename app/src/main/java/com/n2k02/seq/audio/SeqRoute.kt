@@ -5,17 +5,27 @@ import android.content.Context
 import android.content.res.Configuration
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import com.n2k02.seq.model.AudioProfile
+import com.n2k02.seq.model.AutoSound
 import com.n2k02.seq.model.EngineSettings
-import com.n2k02.seq.model.LoudnessCompensation
+import com.n2k02.seq.model.RouteKind
 import com.n2k02.seq.model.Tone
 
-/** Pure car-profile decision so it can be unit tested. */
-object CarPolicy {
-  fun isCar(manual: Boolean, automatic: Boolean, carMode: Boolean, namedDeviceConnected: Boolean) =
-    manual || (automatic && (carMode || namedDeviceConnected))
+/** Pure output classification so it can be unit tested. */
+object RoutePolicy {
+  fun kind(carMode: Boolean, outputTypes: List<Int>): RouteKind = when {
+    carMode -> RouteKind.CAR
+    outputTypes.any { it in WIRED } -> RouteKind.WIRED
+    outputTypes.any { it in BLUETOOTH } -> RouteKind.BLUETOOTH
+    else -> RouteKind.SPEAKER
+  }
+  private val WIRED = setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET,
+    AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE)
+  private val BLUETOOTH = setOf(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET,
+    AudioDeviceInfo.TYPE_BLE_SPEAKER, AudioDeviceInfo.TYPE_HEARING_AID)
 }
 
-/** One route decision for every SEQ path (native DSP, session effects, all-media effect). */
+/** One route + tone decision for every SEQ path (native DSP, session and all-media effects). */
 object SeqRoute {
   /** Android Auto puts the phone in car UI mode while projecting. */
   fun isCarMode(context: Context): Boolean = runCatching {
@@ -23,21 +33,21 @@ object SeqRoute {
       Configuration.UI_MODE_TYPE_CAR
   }.getOrDefault(false)
 
-  fun isCar(context: Context, s: EngineSettings): Boolean {
-    if (s.carManual) return true
-    if (!s.automaticCarProfile) return false
-    val named = s.carDeviceName.isNotBlank() && outputs(context).any {
-      it.productName?.toString()?.equals(s.carDeviceName, ignoreCase = true) == true
-    }
-    return CarPolicy.isCar(false, true, isCarMode(context), named)
+  /** Car profile is automatic: Android Auto (car mode). */
+  @Suppress("UNUSED_PARAMETER")
+  fun isCar(context: Context, s: EngineSettings): Boolean = isCarMode(context)
+
+  fun kind(context: Context, car: Boolean): RouteKind =
+    RoutePolicy.kind(car, outputs(context).map { it.type })
+
+  /** Effective SEQ Auto tone; flat in Pure. */
+  fun tone(context: Context, s: EngineSettings, car: Boolean): Tone {
+    if (s.profile == AudioProfile.PURE) return Tone()
+    val volume = if (s.loudness) volumeFraction(context) else 1f
+    val adaptive = if (s.adaptive) SeqAdaptiveAnalyzer.correction else Tone()
+    return AutoSound.compose(kind(context, car), volume, adaptive)
   }
 
-  /** Effective tone for every path: profile tone + volume-adaptive loudness (not in car). */
-  fun tone(context: Context, s: EngineSettings, car: Boolean): Tone {
-    val base = s.activeTone(car)
-    if (!s.loudness || car || s.profile == com.n2k02.seq.model.AudioProfile.PURE) return base
-    return LoudnessCompensation.apply(base, volumeFraction(context))
-  }
   fun volumeFraction(context: Context): Float = runCatching {
     val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     val min = audio.getStreamMinVolume(AudioManager.STREAM_MUSIC)
@@ -46,12 +56,12 @@ object SeqRoute {
   }.getOrDefault(1f)
 
   fun describe(context: Context, car: Boolean): String {
-    if (car) return if (isCarMode(context)) "Car profile • Android Auto" else "Car profile"
-    return outputs(context).firstOrNull {
-      it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
-        it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-        it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-    }?.productName?.toString()?.take(80) ?: "Phone / other output"
+    if (car) return "Android Auto"
+    val kind = kind(context, false)
+    val name = outputs(context).firstOrNull {
+      RoutePolicy.kind(false, listOf(it.type)) == kind && kind != RouteKind.SPEAKER
+    }?.productName?.toString()?.take(60)
+    return name?.let { "$it • ${kind.title}" } ?: kind.title
   }
 
   private fun outputs(context: Context): Array<AudioDeviceInfo> = runCatching {
