@@ -1,14 +1,14 @@
 {
-  "tag": "v0.3.0-exp-65",
-  "versionCode": 65,
-  "apkUrl": "https://github.com/N2K02/SEQ/releases/download/v0.3.0-exp-65/SEQ-0.3.0-exp-65.apk",
-  "sha256": "c28d27ed3e9b1ab343f5dbdf470a0b4093138e06fd037f0830362fd34450fa4a",
-  "apkSize": 92305804,
+  "tag": "v0.3.0-exp-67",
+  "versionCode": 67,
+  "apkUrl": "https://github.com/N2K02/SEQ/releases/download/v0.3.0-exp-67/SEQ-0.3.0-exp-67.apk",
+  "sha256": "cc76bccb8d1ca584c9974c41c0217f7a153ae3c890bed4d993e4bc66b6162ec6",
+  "apkSize": 92338568,
   "notes": [
     "Material 3 Expressive theme and shared updater",
     "Optional measured FIR and 4x intersample peak guard",
     "USB direct PCM16 when supported",
     "Android Auto local music browser"
   ],
-  "publishedAt": "2026-11-06T07:15:57.006054+00:00"
+  "publishedAt": "2026-11-06T07:22:04.739097+00:00"
 }
