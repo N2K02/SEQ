@@ -13,14 +13,35 @@ class SeqAdbUiContractTest {
  }
  @Test fun removesManualPairingAndAboutLogsScreens() {
    val ui=source("MainActivity.kt")
-   assertTrue(ui.contains("SEQ ADB Details"))
-   assertTrue(ui.contains("Auto-detect pairing code"))
-   assertTrue(ui.contains("Restore after restart"))
+   val diagnostics=source("SeqAdbDiagnosticsScreen.kt")
+   assertTrue(ui.contains("SeqAdbDiagnosticsScreen("))
+   assertTrue(diagnostics.contains("SEQ ADB Details"))
+   assertTrue(diagnostics.contains("Auto-detect pairing code"))
+   assertTrue(diagnostics.contains("Restore after restart"))
+   assertTrue(diagnostics.contains("DiagnosticSection(\"Permissions\""))
+   assertTrue(diagnostics.indexOf("DiagnosticSection(\"Permissions\"") <
+     diagnostics.indexOf("DiagnosticSection(\"Automatic connection\""))
+   assertTrue(diagnostics.contains("SeqPairingAccessibilityService.isEnabled(context)"))
+   assertTrue(ui.contains("permissionRevision++"))
    assertFalse(ui.contains("Page.LOGS"))
    assertFalse(ui.contains("Page.ABOUT"))
    assertFalse(ui.contains("Pair with Android"))
    assertFalse(ui.contains("Local ADB connection port"))
    assertFalse(ui.contains("Six-digit pairing code"))
+   assertFalse(diagnostics.contains("OutlinedTextField"))
+   assertFalse(diagnostics.contains("Enter pairing code"))
+ }
+ @Test fun permissionsAreSeparateFromPairingSettings() {
+   val diagnostics=source("SeqAdbDiagnosticsScreen.kt")
+   val permissionBegin=diagnostics.indexOf("DiagnosticSection(\"Permissions\"")
+   val pairingBegin=diagnostics.indexOf("DiagnosticSection(\"Pairing & recovery\"")
+   assertTrue(permissionBegin>=0 && pairingBegin>permissionBegin)
+   val permissions=diagnostics.substring(permissionBegin,pairingBegin)
+   assertTrue(permissions.contains("ADB authorization"))
+   assertTrue(permissions.contains("Accessibility"))
+   assertTrue(permissions.contains("Secure settings"))
+   assertTrue(permissions.contains("Notifications"))
+   assertTrue(diagnostics.contains("permissionRevision"))
  }
  @Test fun pairingReaderNeverExaminesOtherAppContents() {
    val a=source("adb/SeqPairingAccessibilityService.kt")

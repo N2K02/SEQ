@@ -50,16 +50,12 @@ import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.model.*
 import com.n2k02.seq.adb.LocalAdbDiagnostics
-import com.n2k02.seq.adb.SeqPairingAccessibilityService
 import com.n2k02.seq.adb.SeqAdbRecoveryWorker
-import com.n2k02.seq.adb.SeqAdbUiPolicy
 import com.n2k02.seq.SeqUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
-import java.text.SimpleDateFormat
-import java.util.Date
 
 // Shared mRadio-style Material 3 Expressive palette: dynamic color and motion.
 private val accent: Color @Composable get() = MaterialTheme.colorScheme.primary
@@ -88,6 +84,7 @@ private fun pageIcon(page:Page):ImageVector = when(page) {
 class MainActivity : ComponentActivity() {
   private lateinit var store: SettingsStore
   private lateinit var adb: LocalAdbDiagnostics
+  private var permissionRevision by mutableIntStateOf(0)
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     // Mirror mRadio: edge-to-edge window with explicit header and navigation insets.
@@ -453,130 +450,14 @@ class MainActivity : ComponentActivity() {
                 }
               }
               Page.DIAGNOSTICS -> {
-                val adbStatus by adb.state.collectAsState()
-                val adbPrefs=adb.preferences
-                var autoLink by remember { mutableStateOf(adbPrefs.automatic) }
-                var autoDiscovery by remember { mutableStateOf(adbPrefs.discoverWireless) }
-                var autoPair by remember { mutableStateOf(adbPrefs.autoPairCode) }
-                var watchdog by remember { mutableStateOf(adbPrefs.watchdog) }
-                var boot by remember { mutableStateOf(adbPrefs.startOnBoot) }
-                var restore by remember { mutableStateOf(adbPrefs.restoreAfterRestart) }
-                var tcp by remember { mutableStateOf(adbPrefs.tcpMode) }
-                val accessible=SeqPairingAccessibilityService.isEnabled(this@MainActivity)
-                SurfaceCard {
-                  Row(verticalAlignment=Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Terminal,null,tint=accent)
-                    Spacer(Modifier.width(10.dp))
-                    Text("SEQ ADB Details",style=MaterialTheme.typography.titleLarge,
-                      fontWeight=FontWeight.Bold)
-                  }
-                  Text(adbStatus.message, color=if(adbStatus.uidVerified) accent else quiet)
-                  HorizontalDivider(color=quiet.copy(alpha=0.25f))
-                  Text("Shell UID   "+if(adbStatus.uidVerified) "2000 (last verified)" else "Not verified")
-                  Text("Connection   "+if(adbStatus.busy) "Checking…" else "Disconnected (idle)")
-                  Text("Transport   "+adbStatus.transport)
-                  Text("Pairing   "+if(adbPrefs.wasPaired) "Previously paired" else "Not paired with SEQ")
-                  Text("Discovery   "+if(adbStatus.scanning) "Searching" else "Idle")
-                  Text("Last verified   "+if(adbStatus.verifiedAt>0L)
-                    SimpleDateFormat("dd MMM, HH:mm",Locale.getDefault())
-                      .format(Date(adbStatus.verifiedAt)) else "Never",color=quiet,
-                    style=MaterialTheme.typography.bodySmall)
-                  Text("Pairing port   "+(adbStatus.pairingPort?.toString() ?: "Not detected")+
-                    "    TLS port   "+(adbStatus.connectPort?.toString() ?: "Not detected"),
-                    color=quiet,style=MaterialTheme.typography.bodySmall)
-                }
-                SurfaceCard {
-                  Text("Automatic connection",style=MaterialTheme.typography.titleMedium,
-                    fontWeight=FontWeight.SemiBold)
-                  ToggleRow("Automatic connection and recovery",autoLink) {
-                    autoLink=it
-                    adb.setAutomatic(it)
-                  }
-                  ToggleRow("Discover Wireless debugging",autoDiscovery) {
-                    autoDiscovery=it
-                    adb.setDiscovery(it)
-                  }
-                  Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Button(enabled=!adbStatus.busy,onClick={
-                      adb.discover(true)
-                      adb.connect()
-                    }) { Text("Retry") }
-                    OutlinedButton(enabled=!adbStatus.busy,onClick={
-                      adb.inspectAutomatic()
-                    }) { Text("Inspect audio") }
-                  }
-                  Text("Automatically finds this phone's ADB ports, authenticates SEQ's own key and verifies UID 2000. Shell connections close after each check.",
-                    color=quiet,style=MaterialTheme.typography.bodySmall)
-                }
-                SurfaceCard {
-                  Text("Pairing & recovery",style=MaterialTheme.typography.titleMedium,
-                    fontWeight=FontWeight.SemiBold)
-                  ToggleRow("Auto-detect pairing code",autoPair) {
-                    autoPair=it
-                    adb.setAutoPairCode(it)
-                  }
-                  Text("Reads the pairing code from Android's Wireless debugging screen using Accessibility, like VRec. There are no manual pairing fields.",
-                    color=quiet,style=MaterialTheme.typography.bodySmall)
-                  if(!accessible) {
-                    Text("Enable the SEQ automatic ADB pairing Accessibility service first.",
-                      color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
-                    OutlinedButton(onClick={
-                      startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    }) { Text("Enable Accessibility") }
-                  } else {
-                    Text("Accessibility enabled",color=accent,style=MaterialTheme.typography.bodySmall)
-                  }
-                  OutlinedButton(onClick={
-                    val args=Bundle().apply {
-                      putString(":settings:fragment_args_key","toggle_adb_wireless")
-                    }
-                    val intent=Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-                      .putExtra(":settings:fragment_args_key","toggle_adb_wireless")
-                      .putExtra(":settings:show_fragment_args",args)
-                    startActivity(intent)
-                    adb.discover(true)
-                  }) { Text("Open Wireless debugging") }
-                  HorizontalDivider(color=quiet.copy(alpha=0.2f))
-                  ToggleRow("Connection watchdog",watchdog) {
-                    watchdog=it
-                    adb.setWatchdog(it)
-                  }
-                  ToggleRow("Start on boot",boot) {
-                    boot=it
-                    adb.setStartOnBoot(it)
-                  }
-                }
-                SurfaceCard {
-                  Text("Connection & security",style=MaterialTheme.typography.titleMedium,
-                    fontWeight=FontWeight.SemiBold)
-                  ToggleRow("Restore after restart",restore) {
-                    restore=it
-                    adb.setRestoreAfterRestart(it)
-                  }
-                  Text("Opt-in restoration only. Requires verified ADB-granted secure settings permission and a new boot; never overrides a same-boot manual off.",
-                    color=quiet,style=MaterialTheme.typography.bodySmall)
-                  HorizontalDivider(color=quiet.copy(alpha=0.2f))
-                  ToggleRow("Keep ADB without Wi-Fi (TCP/5555)",tcp) {
-                    tcp=it
-                    adb.setTcpMode(it)
-                  }
-                  Text("After verified TLS UID 2000, switches to TCP/5555 and re-verifies. This port can be reachable from your network; disable it when not needed.",
-                    color=quiet,style=MaterialTheme.typography.bodySmall)
-                  OutlinedButton(enabled=!adbStatus.busy,onClick={adb.disconnectTcp()}) {
-                    Text("Disable TCP/5555")
-                  }
-                }
-                SurfaceCard {
-                  Text("SEQ engine diagnostics",style=MaterialTheme.typography.titleMedium,
-                    fontWeight=FontWeight.SemiBold)
-                  Text("Audio service   "+if(status.running) "Running" else "Stopped")
-                  Text("Local player   "+mediaStatus)
-                  Text("Native DSP   "+nativeStatus)
-                  Text("Sessions   "+status.sessions)
-                  Text("Output   "+status.route)
-                  Text(status.lastEvent,color=quiet,style=MaterialTheme.typography.bodySmall)
-                  if(adbStatus.details.isNotBlank()) SelectionText(adbStatus.details)
-                }
+                SeqAdbDiagnosticsScreen(
+                  context=this@MainActivity,
+                  adb=adb,
+                  engine=status,
+                  localPlayer=mediaStatus,
+                  nativePath=nativeStatus,
+                  permissionRevision=permissionRevision
+                )
               }
               Page.UPDATES -> {
                 N2K02UpdateScreen(
@@ -595,6 +476,7 @@ class MainActivity : ComponentActivity() {
   }
   override fun onResume() {
     super.onResume()
+    permissionRevision++ // Refresh live Android grants after returning from system Settings.
     adb.resumed()
     SeqUpdater.onResume(this)
   }
