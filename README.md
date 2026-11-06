@@ -19,13 +19,12 @@ SEQ is a battery-conscious experimental sound engine, with a minimal neutral Mat
 - No compressor, artificial stereo widening, continuous AI processing, GPU signal processing, polling loops or microphone permission. AutoEq correction is off until explicitly enabled.
 - Native audio has not yet been verified against calibrated listening equipment. Media3's native DSP supports decoded **stereo PCM16**, with other formats limited by device decoder support; it does not promise bit-perfect audio.
 
-## Build
-JDK 17, Android SDK 36, NDK 27.3, Gradle 8.13.
-`gradle :app:assembleDebug :app:testDebugUnitTest`
+## Build and release channels
+JDK 17, Android SDK 37, NDK 27.3 and Gradle 9.6.
+`gradle :app:testDebugUnitTest :app:lintDebug :app:assembleRelease -PseqVersion=0.3.0 -PseqChannel=experimental -PseqBuild=123`
 Native tests: `cmake -S dsp -B dsp/build && cmake --build dsp/build && ctest --test-dir dsp/build --output-on-failure`.
 
-CI publishes a debug APK artifact **only after the Android build and tests pass**.
-See [Architecture](docs/ARCHITECTURE.md) and [Reference Player](docs/REFERENCE_PLAYER.md).
+Both channels use the same **R8-minified release APK** and independent native DSP tests. `main` publishes stable releases; the single experimental branch publishes prereleases. Both require the **same SEQ-specific persistent signing identity**; a mismatched or missing signing secret prevents release publication. See [Release pipeline and one-time signing setup](docs/RELEASE_PIPELINE.md), [Architecture](docs/ARCHITECTURE.md) and [Reference Player](docs/REFERENCE_PLAYER.md).
 
 ## Direct ADB setup
 1. If VRec has already enabled TCP/5555 on the device, open SEQ → Settings → Diagnostics and check port 5555. Authorize SEQ's separate ADB identity when Android prompts. VRec's own private key cannot be shared between app sandboxes.
@@ -45,7 +44,7 @@ Shared private dependencies: CI needs the `N2K02_PACKAGES_TOKEN` repository secr
 ## Material 3 Expressive and GitHub pre-releases
 SEQ shares `n2k02theme` and `n2k02updater` with mRadio and VRec. A verified CI build publishes a GitHub **pre-release** APK and an experimental updater manifest on the `gh-pages` branch. The updater checks the public manifest and verifies the package and APK SHA-256 before installation. No GitHub token is bundled in SEQ.
 
-CI debug APKs are **not reliably signed with a persistent key**. Do not treat this as a production update channel: Android enforces signer identity, so future experimental upgrades can require uninstall/reinstall until a dedicated secure release signing key is configured.
+The older experimental debug APKs used an unstable signing identity. New stable and experimental releases will require the same permanently configured SEQ-specific signing key, and the first migration may require uninstalling older debug builds. Refer to [Release pipeline](docs/RELEASE_PIPELINE.md).
 
 ## Automatic ADB (VRec-style)
 SEQ contains no manual pairing-code or port input UI. The user enables Accessibility once in Android Settings; SEQ reads only the Settings Wireless debugging pairing dialog, discovers on-device TLS/pairing ports via mDNS, and verifies shell UID 2000. It supports automatic reconnect, optional TCP/5555 promotion, boot recovery, watchdog and opt-in restore-after-restart with Android-granted WRITE_SECURE_SETTINGS. TCP/5555 may be network-reachable; switch it off when unused. Closing Diagnostics releases discovery and the ADB socket; Quit cancels scheduled recovery. Logs and About screens are removed, while bounded internal diagnostics remain.

@@ -1,25 +1,53 @@
-name: SEQ validation
+name: SEQ Build and Release
+
 on:
   push:
     branches: [main, experimental/high-fidelity-engine]
   pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional stable version (MAJOR.MINOR.PATCH), main only"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seq-verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   dsp:
+    name: Native DSP regression tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build native DSP and run tests
+      - name: Build and test C++ DSP
         run: |
           cmake -S dsp -B dsp/build -DCMAKE_BUILD_TYPE=Release
           cmake --build dsp/build -j 2
           ctest --test-dir dsp/build --output-on-failure
+
   android:
+    name: Android tests, lint and R8 release build
     runs-on: ubuntu-latest
     env:
       N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN }}
       N2K02_PACKAGES_USER: N2K02
+    outputs:
+      channel: ${{ steps.version.outputs.SEQ_CHANNEL }}
+      version: ${{ steps.version.outputs.SEQ_VERSION }}
+      version_code: ${{ steps.version.outputs.SEQ_VERSION_CODE }}
+      tag: ${{ steps.version.outputs.SEQ_TAG }}
+      apk_name: ${{ steps.version.outputs.SEQ_APK_NAME }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -33,94 +61,209 @@ jobs:
       - name: Install Android SDK
         run: |
           sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
-          # SDK 37.0 uses a qualified directory; AGP may still resolve android-37.
           if [ -d "$ANDROID_HOME/platforms/android-37.0" ] && [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
             ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
           fi
-      - name: Verify private dependency credential
-        run: test -n "$N2K02_PACKAGES_TOKEN" || { echo "::error::N2K02_PACKAGES_TOKEN secret is missing. Configure private GitHub Packages read token in SEQ repository Actions secrets."; exit 1; }
-      - name: Verify updater manifest URL contract
+      - name: Resolve stable or experimental build version
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            CHANNEL=stable
+          elif [ "$GITHUB_REF" = "refs/heads/experimental/high-fidelity-engine" ]; then
+            CHANNEL=experimental
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            CHANNEL=experimental
+          else
+            echo "::error::Unsupported release branch"; exit 1
+          fi
+          LAST="$(git tag -l 'v*' | grep -E '^v[0-9]+[.][0-9]+[.][0-9]+$' | sort -V | tail -1 || true)"
+          python3 scripts/release_policy.py --channel "$CHANNEL" \
+            --previous "$LAST" --requested "${REQUESTED_VERSION:-}" \
+            --run "$GITHUB_RUN_NUMBER" > "$RUNNER_TEMP/seq-version.env"
+          cat "$RUNNER_TEMP/seq-version.env" >> "$GITHUB_ENV"
+          cat "$RUNNER_TEMP/seq-version.env" >> "$GITHUB_OUTPUT"
+      - name: Verify private package credentials
+        run: |
+          test -n "$N2K02_PACKAGES_TOKEN" || {
+            echo "::error::Configure N2K02_PACKAGES_TOKEN in SEQ Actions secrets"; exit 1;
+          }
+      - name: Test release and updater policies
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
-      - name: Compile and run JVM unit tests
-        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest -PseqBuild=${{ github.run_number }}
+      - name: Build minified release APK, verify JVM tests and lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleRelease \
+            -PseqVersion="$SEQ_VERSION" -PseqChannel="$SEQ_CHANNEL" \
+            -PseqBuild="$GITHUB_RUN_NUMBER"
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s app/build/outputs/mapping/release/mapping.txt
+          echo "R8 minified APK and mapping verified"
       - uses: actions/upload-artifact@v4
-        if: success()
         with:
-          name: SEQ-experimental-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: SEQ-release-unsigned
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
-  prerelease:
-    name: Publish tested experimental APK
+          retention-days: 7
+
+  publish:
+    name: Publish persistently signed stable or experimental APK
     needs: [android, dsp]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/experimental/high-fidelity-engine'
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/experimental/high-fidelity-engine')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     concurrency:
-      group: seq-experimental-release
+      group: seq-serialized-release
       cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SIGNING_KEYSTORE_ENC_BASE64: ${{ secrets.SIGNING_KEYSTORE_ENC_BASE64 }}
+      SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
+      SEQ_SIGNING_CERT_SHA256: ${{ secrets.SEQ_SIGNING_CERT_SHA256 }}
+      RELEASE_CHANNEL: ${{ needs.android.outputs.channel }}
+      RELEASE_TAG: ${{ needs.android.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.android.outputs.version }}
+      RELEASE_VERSION_CODE: ${{ needs.android.outputs.version_code }}
+      RELEASE_APK_NAME: ${{ needs.android.outputs.apk_name }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-java@v4
         with:
-          name: SEQ-experimental-debug
-          path: ${{ runner.temp }}/seq-apk
-      - name: Publish tagged pre-release and public update manifest
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SEQ_RUN: ${{ github.run_number }}
-          SEQ_SHA: ${{ github.sha }}
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+      - name: Check release signing and latest branch head
+        id: gate
+        shell: bash
         run: |
           set -euo pipefail
-          CURRENT="$(gh api repos/N2K02/SEQ/branches/experimental/high-fidelity-engine --jq .commit.sha)"
-          if [ "$CURRENT" != "$SEQ_SHA" ]; then
-            echo "Skipping obsolete build; newest branch commit is $CURRENT"
+          CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/${GITHUB_REF#refs/heads/}" --jq .commit.sha)"
+          if [ "$CURRENT" != "$GITHUB_SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping obsolete commit $GITHUB_SHA; branch is at $CURRENT"
             exit 0
           fi
-          APK="$RUNNER_TEMP/seq-apk/app-debug.apk"
-          test -f "$APK"
-          TAG="v0.3.0-exp-$SEQ_RUN"
-          NAME="SEQ-0.3.0-exp-$SEQ_RUN.apk"
-          # GitHub CLI's path#label sets only the label, not the asset filename.
-          # Publish a real file with the desired filename, then use that exact asset URL.
-          RENAMED_APK="$RUNNER_TEMP/seq-apk/$NAME"
-          cp "$APK" "$RENAMED_APK"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$SIGNING_KEYSTORE_ENC_BASE64" ] ||
+             [ -z "$SIGNING_PASSPHRASE" ] ||
+             [ -z "$SEQ_SIGNING_CERT_SHA256" ]; then
+            echo "::error::SEQ persistent signing is not configured. Run scripts/setup-seq-signing.sh locally and set the three Actions secrets. Unsigned/re-signed APKs MUST NOT be published."
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.gate.outputs.skip == 'false'
+        with:
+          name: SEQ-release-unsigned
+          path: ${{ runner.temp }}/unsigned
+      - name: Sign, verify and fingerprint the release APK
+        if: steps.gate.outputs.skip == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          test -s "$RUNNER_TEMP/unsigned/app-release-unsigned.apk"
+          printf '%s' "$SIGNING_KEYSTORE_ENC_BASE64" | base64 --decode |
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+              -pass env:SIGNING_PASSPHRASE -out "$RUNNER_TEMP/seq-release.p12"
+          test -s "$RUNNER_TEMP/seq-release.p12"
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          APK="$RUNNER_TEMP/$RELEASE_APK_NAME"
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/seq-release.p12" \
+            --ks-type PKCS12 --ks-key-alias seqrelease \
+            --ks-pass env:SIGNING_PASSPHRASE --key-pass env:SIGNING_PASSPHRASE \
+            --out "$APK" "$RUNNER_TEMP/unsigned/app-release-unsigned.apk"
+          "$BT/apksigner" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/seq-signature.txt"
+          ACTUAL="$(awk '/Signer #1 certificate SHA-256 digest:/{print tolower($NF);exit}' "$RUNNER_TEMP/seq-signature.txt")"
+          EXPECTED="$(printf '%s' "$SEQ_SIGNING_CERT_SHA256" | tr '[:upper:]' '[:lower:]')"
+          test "${#ACTUAL}" -eq 64 && test "$ACTUAL" = "$EXPECTED" || {
+            echo "::error::Signing identity mismatch. Rejecting update to protect installed SEQ apps."
+            exit 1
+          }
+          rm -f "$RUNNER_TEMP/seq-release.p12"
+          echo "Verified persistent signer: $ACTUAL"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+          echo "APK_SHA256=$(sha256sum "$APK" | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "APK_SIZE=$(stat -c%s "$APK")" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        if: steps.gate.outputs.skip == 'false'
+        with:
+          name: SEQ-${{ needs.android.outputs.channel }}-signed
+          path: ${{ runner.temp }}/${{ needs.android.outputs.apk_name }}
+          if-no-files-found: error
+      - name: Publish GitHub Release and channel updater feed
+        if: steps.gate.outputs.skip == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/${GITHUB_REF#refs/heads/}" --jq .commit.sha)"
+          if [ "$CURRENT" != "$GITHUB_SHA" ]; then
+            echo "::notice::Not publishing stale build $GITHUB_SHA"
+            exit 0
+          fi
           NOTES="$RUNNER_TEMP/seq-release-notes.md"
-          cat > "$NOTES" <<'EOF'
-          Experimental SEQ Hi-Fi Android build with native reference DSP, optional FIR, intersample peak guard, conditional USB direct PCM, Android Auto local media browser, n2k02theme Material 3 Expressive UI, n2k02updater and direct ADB diagnostics.
-          
-          **Device testing required.** Audio processing only affects compatible sessions. USB bit-perfect works only where the USB DAC and Android HAL report support.
-          
-          **Signing:** CI debug signing is not a stable release identity. Later builds may require uninstall/reinstall until a persistent release signing key is configured; never bypass Android installer signature checks.
-          EOF
-          gh release create "$TAG" "$RENAMED_APK" \
-            --repo N2K02/SEQ --target "$SEQ_SHA" \
-            --title "SEQ 0.3 Experimental ($SEQ_RUN)" \
-            --notes-file "$NOTES" --prerelease
-          # Reject a successful publish if the advertised APK isn't really an asset.
-          gh release view "$TAG" --repo N2K02/SEQ --json assets \
-            --jq '.assets[].name' | grep -Fxq "$NAME"
-          export SEQ_APK_URL="https://github.com/N2K02/SEQ/releases/download/$TAG/$NAME"
-          export SEQ_APK_SHA="$(sha256sum "$RENAMED_APK" | awk '{print $1}')"
-          export SEQ_APK_SIZE="$(stat -c%s "$RENAMED_APK")"
+          {
+            echo "# SEQ $RELEASE_VERSION ($RELEASE_CHANNEL)"
+            echo "Version code: $RELEASE_VERSION_CODE"
+            echo
+            echo "Material 3 Expressive, direct ADB diagnostics and the SEQ native DSP."
+            echo "Device-specific audio, battery, Android Auto and acoustic measurements remain required."
+            echo
+            echo "Persistently signed release APK (R8 enabled); not a re-signed debug APK."
+            echo "Users of older ephemeral debug APKs may need to uninstall once."
+            echo
+            echo "Source commit: $GITHUB_SHA"
+          } > "$NOTES"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ "$RELEASE_CHANNEL" = "stable" ]; then
+              echo "::error::Stable tag already exists; refusing overwrite"; exit 1
+            fi
+            gh release upload "$RELEASE_TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" --clobber
+          elif [ "$RELEASE_CHANNEL" = "stable" ]; then
+            gh release create "$RELEASE_TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "SEQ $RELEASE_VERSION" \
+              --notes-file "$NOTES" --latest
+          else
+            gh release create "$RELEASE_TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "SEQ experimental · PR #1 · run $GITHUB_RUN_NUMBER" \
+              --notes-file "$NOTES" --prerelease --latest=false
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | grep -Fxq "$RELEASE_APK_NAME"
+          export SEQ_RELEASE_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$RELEASE_APK_NAME"
           python3 - <<'PY'
-          import os,json,datetime
-          obj = dict(tag=os.environ["SEQ_RUN"],versionCode=int(os.environ["SEQ_RUN"]),
-            apkUrl=os.environ["SEQ_APK_URL"],sha256=os.environ["SEQ_APK_SHA"],
-            apkSize=int(os.environ["SEQ_APK_SIZE"]),
-            notes=["Material 3 Expressive theme and shared updater",
-              "Optional measured FIR and 4x intersample peak guard",
-              "USB direct PCM16 when supported", "Android Auto local music browser"],
-            publishedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
-          obj["tag"]="v0.3.0-exp-"+obj["tag"]
-          with open(os.environ["RUNNER_TEMP"]+"/experimental.json","w") as f:
-            json.dump(obj,f,indent=2)
+          import datetime, json, os, pathlib
+          obj = {
+              "tag": os.environ["RELEASE_TAG"],
+              "versionCode": int(os.environ["RELEASE_VERSION_CODE"]),
+              "apkUrl": os.environ["SEQ_RELEASE_URL"],
+              "sha256": os.environ["APK_SHA256"],
+              "apkSize": int(os.environ["APK_SIZE"]),
+              "notes": [
+                  "Native DSP and Material 3 Expressive UI",
+                  "VRec-style direct ADB diagnostics",
+                  "Stable release" if os.environ["RELEASE_CHANNEL"] == "stable" else "Experimental pre-release",
+              ],
+              "publishedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          pathlib.Path(os.environ["RUNNER_TEMP"], "seq-manifest.json").write_text(
+              json.dumps(obj, indent=2) + "\n", encoding="utf-8"
+          )
           PY
-          # Validate contract while scripts are still available on the source branch.
-          python3 scripts/check_updater_manifest.py "$RUNNER_TEMP/experimental.json" "$NAME"
-          # Update the separate public manifest branch, not the experimental PR.
+          python3 scripts/check_updater_manifest.py \
+            "$RUNNER_TEMP/seq-manifest.json" "$RELEASE_APK_NAME"
+          # A serialized writer prevents stable/experimental feed updates racing.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
@@ -131,9 +274,9 @@ jobs:
             git rm -rf . >/dev/null || true
           fi
           mkdir -p updates
-          cp "$RUNNER_TEMP/experimental.json" updates/experimental.json
-          git add updates/experimental.json
+          cp "$RUNNER_TEMP/seq-manifest.json" "updates/$RELEASE_CHANNEL.json"
+          git add "updates/$RELEASE_CHANNEL.json"
           if ! git diff --cached --quiet; then
-            git commit -m "chore: publish SEQ experimental updater feed [skip ci]"
+            git commit -m "chore: publish SEQ $RELEASE_CHANNEL updater feed [skip ci]"
             git push origin gh-pages
           fi

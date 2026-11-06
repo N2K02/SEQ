@@ -2,6 +2,12 @@ plugins {
   id("com.android.application")
   id("org.jetbrains.kotlin.plugin.compose")
 }
+val seqVersion = providers.gradleProperty("seqVersion").orElse("0.3.0").get()
+val seqChannel = providers.gradleProperty("seqChannel").orElse("experimental").get()
+val seqRun = providers.gradleProperty("seqBuild").orNull?.toIntOrNull()
+require(Regex("""[0-9]+\.[0-9]+\.[0-9]+""").matches(seqVersion))
+require(seqChannel in setOf("stable", "experimental"))
+require(seqRun == null || seqRun > 0)
 android {
   namespace = "com.n2k02.seq"
   compileSdk = 37
@@ -9,11 +15,24 @@ android {
     applicationId = "com.n2k02.seq"
     minSdk = 29
     targetSdk = 35
-    // Each CI build gets a monotonically increasing version code for the shared updater.
-    val buildNumber = providers.gradleProperty("seqBuild").orNull?.toIntOrNull()
-    versionCode = buildNumber?.takeIf { it > 2 } ?: 3
-    versionName = "0.3.0-experimental" + (buildNumber?.let { ".$it" } ?: "")
+    // A single monotonically increasing code across experimental and stable releases.
+    versionCode = seqRun?.let { 100000 + it } ?: 3
+    versionName = seqVersion + if (seqChannel == "experimental")
+      "-experimental." + (seqRun?.toString() ?: "local") else ""
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+  }
+  buildTypes {
+    getByName("debug") {
+      isMinifyEnabled = false
+    }
+    getByName("release") {
+      // Both experimental and stable artifacts are release/R8 builds.
+      isMinifyEnabled = true
+      isShrinkResources = true
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"),
+        "proguard-rules.pro")
+      // Intentionally unsigned: only the protected CI signing job may sign it.
+    }
   }
   buildFeatures { compose = true; buildConfig = true; aidl = true }
   compileOptions {
