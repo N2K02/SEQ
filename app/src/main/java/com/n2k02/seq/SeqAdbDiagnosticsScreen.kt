@@ -267,7 +267,7 @@ private fun PermissionStatusRow(icon:ImageVector,title:String,status:String,
     }
     Column(horizontalAlignment=Alignment.End,verticalArrangement=Arrangement.spacedBy(3.dp)) {
       Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(3.dp)) {
-        Icon(if(granted) Icons.Rounded.CheckCircle else Icons.Rounded.InfoOutline,
+        Icon(if(granted) Icons.Rounded.CheckCircle else Icons.Rounded.Info,
           contentDescription=null,modifier=Modifier.size(15.dp),
           tint=if(granted)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
         Text(status,style=MaterialTheme.typography.labelSmall,
