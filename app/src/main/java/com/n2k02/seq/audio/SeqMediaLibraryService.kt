@@ -13,6 +13,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.LibraryResult
+import androidx.media3.session.SessionError
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.google.common.collect.ImmutableList
@@ -66,7 +67,7 @@ class SeqMediaLibraryService : MediaLibraryService() {
       pageSize:Int,
       params:LibraryParams?
     ):ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-      if(parentId!=ROOT) return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
+      if(parentId!=ROOT) return Futures.immediateFuture(LibraryResult.ofError(SessionError.ERROR_BAD_VALUE))
       val list=catalog.items().map(::trackItem)
       val start=(page.toLong()*pageSize).coerceIn(0L,list.size.toLong()).toInt()
       val pageItems=list.drop(start).take(pageSize.coerceIn(1,100))
@@ -80,7 +81,7 @@ class SeqMediaLibraryService : MediaLibraryService() {
         else catalog.items().firstOrNull { it.mediaId==mediaId }?.let(::trackItem)
       return Futures.immediateFuture(
         if(item!=null) LibraryResult.ofItem(item,null)
-        else LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+        else LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
       )
     }
 
