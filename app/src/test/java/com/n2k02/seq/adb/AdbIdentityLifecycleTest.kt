@@ -32,7 +32,7 @@ class AdbIdentityLifecycleTest {
   @Test fun timeoutRetiresDesynchronizedTransport() {
     val path = "app/src/main/java/com/n2k02/seq/adb/AdbTransport.kt"
     val source = listOf(File(path), File("../" + path)).first { it.isFile }.readText()
-    assertTrue(source.contains("val watchdog = launch"))
+    assertTrue(source.contains("val watchdog = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch"))
     assertTrue(source.contains("mgr.disconnect()"))
     assertTrue(source.contains("lastKnownConnected = false"))
     assertTrue(source.contains("runCatching { reader.close() }"))
