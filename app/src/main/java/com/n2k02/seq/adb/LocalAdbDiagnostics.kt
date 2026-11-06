@@ -58,7 +58,8 @@ class LocalAdbDiagnostics(context:Context) {
       "Previously authorized • disconnected to save battery" else "ADB setup required",
     uidVerified=preferences.previouslyAuthorized,
     verifiedAt=preferences.lastVerifiedAt,
-    lastVerifiedPort=preferences.lastVerifiedPort
+    lastVerifiedPort=preferences.lastVerifiedPort,
+    transport=preferences.lastVerifiedTransport
   ))
   private val discovery=SeqAdbDiscovery(app,scope,
     onPort={ pairing,port ->
@@ -68,7 +69,8 @@ class LocalAdbDiagnostics(context:Context) {
           else old.copy(connectPort=port,message="Wireless debugging connection port detected")
         }
         if(pairing) SeqPairingAccessibilityService.onPairingPortDiscovered()
-        if(!pairing && preferences.automatic && preferences.previouslyAuthorized) {
+        if(!pairing && preferences.automatic &&
+          (preferences.previouslyAuthorized || preferences.wasPaired)) {
           scope.launch { if(!state.value.busy) autoConnect() }
         }
       }
@@ -235,7 +237,8 @@ class LocalAdbDiagnostics(context:Context) {
     if(now-lastAutoMs<4_000L) return
     lastAutoMs=now
     val ports=AdbAutoPolicy.candidates(
-      preferences.preferExistingTcp,preferences.previouslyAuthorized,
+      preferences.preferExistingTcp,
+      preferences.previouslyAuthorized || preferences.wasPaired,
       preferences.lastVerifiedPort,state.value.connectPort
     ).filter { tried.add(it) }
     if(ports.isNotEmpty()) runCheck(ports,false)
@@ -320,7 +323,7 @@ class LocalAdbDiagnostics(context:Context) {
                   check(tcpVerified) { "TCP/5555 did not reverify shell UID 2000" }
                   verifiedPort=5555
                 }
-                preferences.markVerified(port)
+                preferences.markVerified(port,verifiedPort)
                 SeqAdbRecoveryWorker.reconcile(app)
                 state.update { it.copy(
                   message="UID 2000 verified • disconnected to save battery",
@@ -422,6 +425,17 @@ class LocalAdbDiagnostics(context:Context) {
     state.update { it.copy(connected=false,busy=false,scanning=false,
       message="Manually disconnected • automatic connection disabled") }
     scope.launch { operation.withLock { AdbTransport.close() } }
+  }
+  fun dispose() {
+    visible=false
+    discovery.stop()
+    watchdog?.cancel();watchdog=null
+    job?.cancel();job=null
+    if(active===this) active=null
+    scope.launch {
+      withContext(NonCancellable) { operation.withLock { AdbTransport.close() } }
+      scope.cancel()
+    }
   }
   fun shutdown() {
     if(active===this) active=null

@@ -47,6 +47,7 @@ class SeqAdbPreferences(context: Context) {
   fun markUserOpened() { manuallyStopped=false }
   val previouslyAuthorized:Boolean get()=prefs.getBoolean("previously_authorized",false)
   val lastVerifiedAt:Long get()=prefs.getLong("verified_at",0L)
+  val lastVerifiedTransport:String get()=prefs.getString("verified_transport","None") ?: "None"
   private fun boot():Int=runCatching {
     Settings.Global.getInt(app.contentResolver,Settings.Global.BOOT_COUNT,-1)
   }.getOrDefault(-1)
@@ -57,10 +58,11 @@ class SeqAdbPreferences(context: Context) {
     )
   fun markPaired(){ prefs.edit().putBoolean("paired",true).apply() }
   val wasPaired:Boolean get()=prefs.getBoolean("paired",false)
-  fun markVerified(port:Int) {
-    if(port !in 1..65535) return
+  fun markVerified(port:Int, verifiedPort:Int=port) {
+    if(port !in 1..65535 || verifiedPort !in 1..65535) return
     val editor=prefs.edit().putBoolean("previously_authorized",true)
       .putLong("verified_at",System.currentTimeMillis()).putInt("verified_boot",boot())
+      .putString("verified_transport",if(verifiedPort==5555) "Local TCP/5555" else "Wireless TLS")
     if(port!=5555 && boot()>=0) {
       editor.putInt("tls_port",port).putInt("tls_boot",boot())
     }

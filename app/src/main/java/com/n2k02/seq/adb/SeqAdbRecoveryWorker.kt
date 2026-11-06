@@ -29,8 +29,10 @@ class SeqAdbRecoveryWorker(context:Context,params:WorkerParameters):
     try {
       if(p.restoreAfterRestart) restoreIfEligible(app,p)
       if(LocalAdbDiagnostics.active?.isPageActive()==true) return Result.success()
-      val client=LocalAdbDiagnostics.active ?: LocalAdbDiagnostics(app)
-      client.recoverOnceForWorker()
+      val existing=LocalAdbDiagnostics.active
+      val client=existing ?: LocalAdbDiagnostics(app)
+      try { client.recoverOnceForWorker() }
+      finally { if(existing==null) client.dispose() }
       return Result.success()
     } catch(cancelled:CancellationException) { throw cancelled }
     catch(e:Exception) { return Result.success() }

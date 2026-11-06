@@ -598,7 +598,7 @@ class MainActivity : ComponentActivity() {
     SeqUpdater.onResume(this)
   }
   override fun onDestroy() {
-    adb.leavePage()
+    adb.dispose()
     super.onDestroy()
   }
 }
