@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -88,7 +89,7 @@ internal fun SeqAdbDiagnosticsScreen(
       SummaryCell("Authorization",view.authorization,Modifier.weight(1f))
     }
     val last=if(status.verifiedAt>0L)
-      SimpleDateFormat("dd MMM, HH:mm",Locale.getDefault()).format(Date(status.verifiedAt)) else "Never"
+      SimpleDateFormat("dd MMM, HH:mm",LocalConfiguration.current.locales[0]).format(Date(status.verifiedAt)) else "Never"
     Text("Last checked  $last",style=MaterialTheme.typography.bodySmall,color=ink)
     TextButton(onClick={detailsExpanded=!detailsExpanded},contentPadding=PaddingValues(0.dp)) {
       Text(if(detailsExpanded) "Hide ports" else "Show discovered ports")
