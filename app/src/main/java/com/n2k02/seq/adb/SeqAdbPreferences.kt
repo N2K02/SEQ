@@ -74,6 +74,8 @@ class SeqAdbPreferences(context: Context) {
 object AdbAutoPolicy {
   fun cachedTlsPort(port:Int,savedBoot:Int,currentBoot:Int):Int? =
     port.takeIf { it in 1..65535 && currentBoot>=0 && savedBoot==currentBoot && it!=5555 }
+  fun shouldRestartAdbdForTcp(port:Int,enabled:Boolean,listenerPresent:Boolean):Boolean =
+    enabled && port!=5555 && !listenerPresent
   fun candidates(preferTcp:Boolean,previouslyAuthorized:Boolean,cachedPort:Int?,discoveredPort:Int?):List<Int> {
     val endpoints=mutableListOf<Int>()
     if(preferTcp) endpoints+=5555

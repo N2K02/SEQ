@@ -300,7 +300,10 @@ class LocalAdbDiagnostics(context:Context) {
                 // when the user opted into that mode. Reverify UID after restart.
                 var verifiedPort=port
                 if(port!=5555 && preferences.tcpMode) {
-                  AdbTransport.switchToTcpip().getOrThrow()
+                  if(AdbAutoPolicy.shouldRestartAdbdForTcp(
+                      port,true,AdbTransport.localTcpListenerPresent())) {
+                    AdbTransport.switchToTcpip().getOrThrow()
+                  }
                   withContext(NonCancellable) { AdbTransport.close() }
                   var tcpVerified=false
                   repeat(12) {

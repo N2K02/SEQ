@@ -61,6 +61,13 @@ object AdbTransport {
      * `service.adb.tcp.port`; this is the sole supported local transport.
      */
     const val LEGACY_TCP_PORT = 5555
+    /** A brief read-only loopback probe. Never restart a listener VRec already uses. */
+    fun localTcpListenerPresent(): Boolean = runCatching {
+        java.net.Socket().use { socket ->
+            socket.connect(java.net.InetSocketAddress(LOOPBACK,LEGACY_TCP_PORT),250)
+            true
+        }
+    }.getOrDefault(false)
 
     /** `exec:` rather than `shell:` so adbd allocates no PTY. See ShellSession. */
     private const val SHELL_SERVICE = "exec:sh"

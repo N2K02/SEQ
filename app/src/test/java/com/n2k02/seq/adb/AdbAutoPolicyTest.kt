@@ -18,6 +18,12 @@ class AdbAutoPolicyTest {
     assertEquals(listOf(5555),AdbAutoPolicy.candidates(true,false,null,38711))
     assertEquals(listOf(5555,38711),AdbAutoPolicy.candidates(true,true,null,38711))
   }
+  @Test fun existingVrecTcpListenerIsNeverRestarted() {
+    assertFalse(AdbAutoPolicy.shouldRestartAdbdForTcp(39000,true,true))
+    assertFalse(AdbAutoPolicy.shouldRestartAdbdForTcp(5555,true,false))
+    assertFalse(AdbAutoPolicy.shouldRestartAdbdForTcp(39000,false,false))
+    assertTrue(AdbAutoPolicy.shouldRestartAdbdForTcp(39000,true,false))
+  }
   @Test fun autoRetryDeduplicatesAndHonorsSecurityPreference() {
     assertEquals(listOf(38711),AdbAutoPolicy.candidates(false,true,38711,38711))
     assertEquals(listOf(5555,38711,38001),AdbAutoPolicy.candidates(true,true,38711,38001))
