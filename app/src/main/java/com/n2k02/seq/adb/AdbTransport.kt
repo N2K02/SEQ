@@ -340,6 +340,36 @@ object AdbTransport {
         }
     }
 
+    /** Match VRec's verified TLS → TCP/5555 transition. Only after UID 2000. */
+    suspend fun switchToTcpip(): Result<Unit> = withContext(Dispatchers.IO) {
+      runCatching {
+        val mgr=manager ?: error("ADB is disconnected")
+        check(mgr.isConnected)
+        val stream=mgr.openStream("tcpip:$LEGACY_TCP_PORT")
+        delay(500L)
+        runCatching { stream.close() }
+        runCatching { shell?.close() }
+        shell=null
+        runCatching { mgr.disconnect() }
+        if(manager === mgr) manager=null
+        lastKnownConnected=false
+      }
+    }
+    suspend fun switchToUsb(): Result<Unit> = withContext(Dispatchers.IO) {
+      runCatching {
+        val mgr=manager ?: error("ADB is disconnected")
+        check(mgr.isConnected)
+        val stream=mgr.openStream("usb:")
+        delay(400L)
+        runCatching { stream.close() }
+        runCatching { shell?.close() }
+        shell=null
+        runCatching { mgr.disconnect() }
+        if(manager === mgr) manager=null
+        lastKnownConnected=false
+      }
+    }
+
     /** Retire the manager and its disposable session key. */
     suspend fun disconnect() = close()
 

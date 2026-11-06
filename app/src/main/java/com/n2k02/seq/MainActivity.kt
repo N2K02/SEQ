@@ -49,11 +49,15 @@ import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.model.*
 import com.n2k02.seq.adb.LocalAdbDiagnostics
+import com.n2k02.seq.adb.SeqPairingAccessibilityService
+import com.n2k02.seq.adb.SeqAdbRecoveryWorker
 import com.n2k02.seq.SeqUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.Date
 
 // Shared mRadio-style Material 3 Expressive palette: dynamic color and motion.
 private val accent: Color @Composable get() = MaterialTheme.colorScheme.primary
@@ -63,7 +67,7 @@ private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurface
 private enum class Page(val title: String) {
   HOME("Home"), SETTINGS("Settings"), EQ("Equalizer"), FIDELITY("Advanced Audio"), PLAYER("Music Library"), DEVICES("Device Profiles"),
   AUTO("Android Auto"), AI("AI Assistant"), DIAGNOSTICS("Diagnostics"),
-  LOGS("Logs"), UPDATES("Updates"), ABOUT("About")
+  UPDATES("Updates")
 }
 
 private fun pageIcon(page:Page):ImageVector = when(page) {
@@ -76,9 +80,7 @@ private fun pageIcon(page:Page):ImageVector = when(page) {
   Page.AUTO -> Icons.Rounded.DirectionsCar
   Page.AI -> Icons.Rounded.Memory
   Page.DIAGNOSTICS -> Icons.Rounded.MonitorHeart
-  Page.LOGS -> Icons.Rounded.Subject
   Page.UPDATES -> Icons.Rounded.SystemUpdate
-  Page.ABOUT -> Icons.Rounded.Info
 }
 
 class MainActivity : ComponentActivity() {
@@ -88,11 +90,16 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     store = SettingsStore(this)
     adb = LocalAdbDiagnostics(applicationContext)
+    SeqAdbRecoveryWorker.reconcile(applicationContext)
     SeqUpdater.init(applicationContext)
     setContent {
       var settings by remember { mutableStateOf(store.read()) }
       var page by remember { mutableStateOf(Page.HOME) }
       BackHandler(enabled=page != Page.HOME && page != Page.SETTINGS) { page=Page.SETTINGS }
+      DisposableEffect(page) {
+        if(page==Page.DIAGNOSTICS) adb.enterPage()
+        onDispose { if(page==Page.DIAGNOSTICS) adb.leavePage() }
+      }
       val updateStatus by SeqUpdater.controller.status.collectAsState()
       val experimentalEnabled by SeqUpdater.experimentalEnabled.collectAsState()
       val status by SeqRuntime.status.collectAsState()
@@ -264,10 +271,8 @@ class MainActivity : ComponentActivity() {
                 MenuRow("AI Assistant", if (settings.aiEnabled) "On-device • optional" else "Optional • Off", Icons.Rounded.Memory) { page = Page.AI }
                 HorizontalDivider(Modifier.padding(vertical = 10.dp), color = quiet.copy(alpha = 0.25f))
                 MenuRow("Diagnostics", "Direct ADB • Audio sessions", Icons.Rounded.MonitorHeart) { page = Page.DIAGNOSTICS }
-                MenuRow("Logs", "Recent engine events", Icons.Rounded.Subject) { page = Page.LOGS }
                 MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",
                   Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
-                MenuRow("About", "SEQ sound principles", Icons.Rounded.Info) { page = Page.ABOUT }
               }
               Page.EQ -> {
                 Text("Adjustments stay small to preserve the recording.", color = quiet)
@@ -431,69 +436,134 @@ class MainActivity : ComponentActivity() {
                 }
               }
               Page.DIAGNOSTICS -> {
-                Text("Live SEQ state", fontWeight = FontWeight.SemiBold)
-                Text("Service: " + if (status.running) "Running" else "Stopped")
-                Text("Local media: "+mediaStatus)
-                Text("Native DSP: "+nativeStatus)
-                Text("Attached sessions: " + status.sessions)
-                Text("Output: " + status.route)
-                Text("Last event: " + status.lastEvent, color = quiet)
-                HorizontalDivider(color = quiet.copy(alpha = .2f))
                 val adbStatus by adb.state.collectAsState()
-                Text("Direct ADB (optional)", fontWeight = FontWeight.SemiBold)
-                Text(adbStatus.message, color = quiet)
-                var connectPort by remember { mutableStateOf("5555") }
-                OutlinedTextField(value = connectPort, onValueChange = {
-                  connectPort = it.filter { char -> char.isDigit() }.take(5)
-                }, label = { Text("Local ADB connection port") }, modifier = Modifier.fillMaxWidth(),
-                  singleLine = true)
-                Button(enabled = !adbStatus.busy, onClick = { adb.inspect(connectPort) }) {
-                  Text("Verify shell and inspect audio")
+                val adbPrefs=adb.preferences
+                var autoLink by remember { mutableStateOf(adbPrefs.automatic) }
+                var autoDiscovery by remember { mutableStateOf(adbPrefs.discoverWireless) }
+                var autoPair by remember { mutableStateOf(adbPrefs.autoPairCode) }
+                var watchdog by remember { mutableStateOf(adbPrefs.watchdog) }
+                var boot by remember { mutableStateOf(adbPrefs.startOnBoot) }
+                var restore by remember { mutableStateOf(adbPrefs.restoreAfterRestart) }
+                var tcp by remember { mutableStateOf(adbPrefs.tcpMode) }
+                val accessible=SeqPairingAccessibilityService.isEnabled(this@MainActivity)
+                SurfaceCard {
+                  Row(verticalAlignment=Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Terminal,null,tint=accent)
+                    Spacer(Modifier.width(10.dp))
+                    Text("SEQ ADB Details",style=MaterialTheme.typography.titleLarge,
+                      fontWeight=FontWeight.Bold)
+                  }
+                  Text(adbStatus.message, color=if(adbStatus.uidVerified) accent else quiet)
+                  HorizontalDivider(color=quiet.copy(alpha=0.25f))
+                  Text("Shell UID   "+if(adbStatus.uidVerified) "2000 (last verified)" else "Not verified")
+                  Text("Connection   "+if(adbStatus.busy) "Checking…" else "Disconnected (idle)")
+                  Text("Transport   "+adbStatus.transport)
+                  Text("Pairing   "+if(adbPrefs.wasPaired) "Previously paired" else "Not paired with SEQ")
+                  Text("Discovery   "+if(adbStatus.scanning) "Searching" else "Idle")
+                  Text("Last verified   "+if(adbStatus.verifiedAt>0L)
+                    SimpleDateFormat("dd MMM, HH:mm",Locale.getDefault())
+                      .format(Date(adbStatus.verifiedAt)) else "Never",color=quiet,
+                    style=MaterialTheme.typography.bodySmall)
+                  Text("Pairing port   "+(adbStatus.pairingPort?.toString() ?: "Not detected")+
+                    "    TLS port   "+(adbStatus.connectPort?.toString() ?: "Not detected"),
+                    color=quiet,style=MaterialTheme.typography.bodySmall)
                 }
-                Text("When VRec already enabled TCP/5555, use port 5555. SEQ uses its own separately authorized key.",
-                  color = quiet, fontSize = 12.sp)
-                HorizontalDivider(color = quiet.copy(alpha = .2f))
-                var pairingPort by remember { mutableStateOf("") }
-                var pairingCode by remember { mutableStateOf("") }
-                Text("First-time wireless pairing", fontWeight = FontWeight.SemiBold)
-                OutlinedTextField(value = pairingPort, onValueChange = {
-                  pairingPort = it.filter { char -> char.isDigit() }.take(5)
-                }, label = { Text("Pairing port from Android Settings") },
-                  modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(value = pairingCode, onValueChange = {
-                  pairingCode = it.filter { char -> char.isDigit() }.take(6)
-                }, label = { Text("Six-digit pairing code") },
-                  modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedButton(enabled = !adbStatus.busy && pairingCode.length == 6,
-                  onClick = {
-                    val code = pairingCode
-                    pairingCode = ""
-                    adb.pair(pairingPort, code)
-                  }) { Text("Pair with Android") }
-                Text("Enable Wireless debugging → Pair device with pairing code. After pairing, use the separate main connection port (shown on the Wireless debugging page).",
-                  color = quiet, fontSize = 12.sp)
-                if (adbStatus.details.isNotBlank()) SelectionText(adbStatus.details)
-                Text("No Shizuku, root, continuous ADB connection, TCP mode changes or microphone access.",
-                  color = quiet, fontSize = 12.sp)
-              }
-              Page.LOGS -> {
-                Text("In-memory events; no automatic disk logging.", color = quiet)
-                val visibleLogs=SeqRuntime.logs().joinToString("\n").ifBlank { "No events yet." }
-                SelectionText(visibleLogs)
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                SurfaceCard {
+                  Text("Automatic connection",style=MaterialTheme.typography.titleMedium,
+                    fontWeight=FontWeight.SemiBold)
+                  ToggleRow("Automatic connection and recovery",autoLink) {
+                    autoLink=it
+                    adb.setAutomatic(it)
+                  }
+                  ToggleRow("Discover Wireless debugging",autoDiscovery) {
+                    autoDiscovery=it
+                    adb.setDiscovery(it)
+                  }
+                  Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Button(enabled=!adbStatus.busy,onClick={
+                      adb.discover(true)
+                      adb.connect()
+                    }) { Text("Retry") }
+                    OutlinedButton(enabled=!adbStatus.busy,onClick={
+                      adb.inspectAutomatic()
+                    }) { Text("Inspect audio") }
+                  }
+                  Text("Automatically finds this phone's ADB ports, authenticates SEQ's own key and verifies UID 2000. Shell connections close after each check.",
+                    color=quiet,style=MaterialTheme.typography.bodySmall)
+                }
+                SurfaceCard {
+                  Text("Pairing & recovery",style=MaterialTheme.typography.titleMedium,
+                    fontWeight=FontWeight.SemiBold)
+                  ToggleRow("Auto-detect pairing code",autoPair) {
+                    autoPair=it
+                    adb.setAutoPairCode(it)
+                  }
+                  Text("Reads the pairing code from Android's Wireless debugging screen using Accessibility, like VRec. There are no manual pairing fields.",
+                    color=quiet,style=MaterialTheme.typography.bodySmall)
+                  if(!accessible) {
+                    Text("Enable the SEQ automatic ADB pairing Accessibility service first.",
+                      color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick={
+                      startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }) { Text("Enable Accessibility") }
+                  } else {
+                    Text("Accessibility enabled",color=accent,style=MaterialTheme.typography.bodySmall)
+                  }
                   OutlinedButton(onClick={
-                    val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("SEQ logs",visibleLogs))
-                  }) { Text("Copy") }
-                  OutlinedButton(onClick={
-                    val send=Intent(Intent.ACTION_SEND).apply {
-                      type="text/plain"
-                      putExtra(Intent.EXTRA_SUBJECT,"SEQ audio diagnostics")
-                      putExtra(Intent.EXTRA_TEXT,visibleLogs)
+                    val args=Bundle().apply {
+                      putString(":settings:fragment_args_key","toggle_adb_wireless")
                     }
-                    startActivity(Intent.createChooser(send,"Share SEQ logs"))
-                  }) { Text("Share") }
-                  OutlinedButton(onClick={SeqRuntime.clear()}) { Text("Clear") }
+                    val intent=Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                      .putExtra(":settings:fragment_args_key","toggle_adb_wireless")
+                      .putExtra(":settings:show_fragment_args",args)
+                    startActivity(intent)
+                    adb.discover(true)
+                  }) { Text("Open Wireless debugging") }
+                  HorizontalDivider(color=quiet.copy(alpha=0.2f))
+                  ToggleRow("Connection watchdog",watchdog) {
+                    watchdog=it
+                    adb.setWatchdog(it)
+                  }
+                  ToggleRow("Start on boot",boot) {
+                    boot=it
+                    adb.setStartOnBoot(it)
+                  }
+                }
+                SurfaceCard {
+                  Text("Connection & security",style=MaterialTheme.typography.titleMedium,
+                    fontWeight=FontWeight.SemiBold)
+                  ToggleRow("Restore after restart",restore) {
+                    restore=it
+                    adb.setRestoreAfterRestart(it)
+                  }
+                  Text("Opt-in restoration only. Requires verified ADB-granted secure settings permission and a new boot; never overrides a same-boot manual off.",
+                    color=quiet,style=MaterialTheme.typography.bodySmall)
+                  HorizontalDivider(color=quiet.copy(alpha=0.2f))
+                  ToggleRow("Keep ADB without Wi-Fi (TCP/5555)",tcp) {
+                    tcp=it
+                    adb.setTcpMode(it)
+                  }
+                  Text("After verified TLS UID 2000, switches to TCP/5555 and re-verifies. This port can be reachable from your network; disable it when not needed.",
+                    color=quiet,style=MaterialTheme.typography.bodySmall)
+                  Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(enabled=!adbStatus.busy,onClick={adb.disconnectTcp()}) {
+                      Text("Disable TCP/5555")
+                    }
+                    OutlinedButton(enabled=!adbStatus.busy,onClick={adb.disconnect()}) {
+                      Text("Disconnect")
+                    }
+                  }
+                }
+                SurfaceCard {
+                  Text("SEQ engine diagnostics",style=MaterialTheme.typography.titleMedium,
+                    fontWeight=FontWeight.SemiBold)
+                  Text("Audio service   "+if(status.running) "Running" else "Stopped")
+                  Text("Local player   "+mediaStatus)
+                  Text("Native DSP   "+nativeStatus)
+                  Text("Sessions   "+status.sessions)
+                  Text("Output   "+status.route)
+                  Text(status.lastEvent,color=quiet,style=MaterialTheme.typography.bodySmall)
+                  if(adbStatus.details.isNotBlank()) SelectionText(adbStatus.details)
                 }
               }
               Page.UPDATES -> {
@@ -504,11 +574,7 @@ class MainActivity : ComponentActivity() {
                   onExperimentalEnabledChange = SeqUpdater::setExperimentalEnabled,
                 )
               }
-              Page.ABOUT -> {
-                Text("SEQ • high-fidelity sound", style=MaterialTheme.typography.headlineSmall, fontWeight=FontWeight.Bold)
-                Text("Accuracy over loudness. Avoid unnecessary compression and processing.", color = quiet)
-                Text("External app effects are cooperative. ADB is diagnostics-only. No automatic DSP on unrelated or protected audio.", color = quiet)
-              }
+
             }
           }
         }
@@ -517,10 +583,11 @@ class MainActivity : ComponentActivity() {
   }
   override fun onResume() {
     super.onResume()
+    adb.resumed()
     SeqUpdater.onResume(this)
   }
   override fun onDestroy() {
-    adb.shutdown()
+    adb.leavePage()
     super.onDestroy()
   }
 }

@@ -40,6 +40,7 @@ dependencies {
   implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
   implementation("androidx.core:core-ktx:1.17.0")
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+  implementation("androidx.work:work-runtime-ktx:2.10.5")
   // Direct localhost ADB; no Shizuku runtime or daemon.
   implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
   implementation("org.bouncycastle:bcprov-jdk15to18:1.81")
