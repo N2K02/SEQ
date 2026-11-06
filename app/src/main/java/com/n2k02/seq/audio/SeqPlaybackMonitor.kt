@@ -36,6 +36,12 @@ object SeqPlaybackMonitor {
   val carMode = MutableStateFlow(false)
   private var app: Context? = null
   private val main = Handler(Looper.getMainLooper())
+  private const val VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
+  private const val EXTRA_STREAM = "android.media.EXTRA_VOLUME_STREAM_TYPE"
+  private val volumeSync = Runnable {
+    com.n2k02.seq.model.SeqAudioRevision.changed() // native DSP picks up new loudness
+    resync()
+  }
 
   private val playback = object : AudioManager.AudioPlaybackCallback() {
     override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>) =
@@ -47,6 +53,14 @@ object SeqPlaybackMonitor {
   }
   private val carReceiver = object : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+      if (intent.action == VOLUME_CHANGED) {
+        // Loudness compensation follows media volume; ignore other streams.
+        if (intent.getIntExtra(EXTRA_STREAM, -1) != AudioManager.STREAM_MUSIC) return
+        if (!SettingsStore(context).read().loudness) return
+        main.removeCallbacks(volumeSync)
+        main.postDelayed(volumeSync, 150)
+        return
+      }
       val car = SeqRoute.isCarMode(context)
       if (carMode.value != car) {
         carMode.value = car
@@ -69,6 +83,7 @@ object SeqPlaybackMonitor {
     val filter = IntentFilter().apply {
       addAction(UiModeManager.ACTION_ENTER_CAR_MODE)
       addAction(UiModeManager.ACTION_EXIT_CAR_MODE)
+      addAction(VOLUME_CHANGED)
     }
     runCatching { registerCarReceiver(ctx, filter) }
     carMode.value = SeqRoute.isCarMode(ctx)

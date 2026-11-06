@@ -115,7 +115,7 @@ class SeqReferencePlayerService : Service() {
         UsbDirectOutput(audio,attributes).play(stream,fmt) { playbackJob?.isActive==true }
         return
       }
-      val tone=setting.activeTone(carProfile())
+      val tone=SeqRoute.tone(this,setting,carProfile())
       val min=AudioTrack.getMinBufferSize(fmt.sampleRate,AudioFormat.CHANNEL_OUT_STEREO,AudioFormat.ENCODING_PCM_FLOAT)
       require(min>0) { "Output sample rate unsupported" }
       val format=AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_FLOAT)

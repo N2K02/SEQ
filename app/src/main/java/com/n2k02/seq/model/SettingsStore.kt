@@ -18,10 +18,11 @@ class SettingsStore(context: Context) {
       aiEnabled = prefs.getBoolean("ai", false),
       headphoneCorrection = prefs.getBoolean("headphone_correction", false),
       convolution = prefs.getBoolean("convolution", false),
-      peakGuard = prefs.getBoolean("peak_guard", false),
+      peakGuard = prefs.getBoolean("peak_guard", true),
       peakCeilingDb = prefs.getFloat("peak_ceiling", -1.0f).coerceIn(-12f, -0.1f),
       usbDirect = prefs.getBoolean("usb_direct", false),
-      allMedia = prefs.getBoolean("all_media", true)
+      allMedia = prefs.getBoolean("all_media", true),
+      loudness = prefs.getBoolean("loudness", true)
     )
   }
   fun write(s: EngineSettings) {
@@ -36,7 +37,7 @@ class SettingsStore(context: Context) {
       .putBoolean("convolution",s.convolution).putBoolean("peak_guard",s.peakGuard)
       .putFloat("peak_ceiling",s.peakCeilingDb.coerceIn(-12f,-0.1f))
       .putBoolean("usb_direct",s.usbDirect)
-      .putBoolean("all_media",s.allMedia).apply()
+      .putBoolean("all_media",s.allMedia).putBoolean("loudness",s.loudness).apply()
     SeqAudioRevision.changed()
   }
 }

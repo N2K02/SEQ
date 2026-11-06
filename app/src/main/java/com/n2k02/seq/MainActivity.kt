@@ -323,7 +323,7 @@ class MainActivity : ComponentActivity() {
               }
               Page.SETTINGS -> {
                 MenuRow("Equalizer", "Precision tone controls", Icons.Rounded.Tune) { page = Page.EQ }
-                MenuRow("Advanced Audio", "FIR • peak guard • USB direct", Icons.Rounded.GraphicEq) { page = Page.FIDELITY }
+                MenuRow("Advanced Audio", "Loudness • limiter • FIR • USB direct", Icons.Rounded.GraphicEq) { page = Page.FIDELITY }
                 MenuRow("Device Profiles", "Headphones and output routes", Icons.Rounded.Headphones) { page = Page.DEVICES }
                 MenuRow("Music Library", "Lossless player • Android Auto", Icons.Rounded.PlayCircle) { page = Page.PLAYER }
                 MenuRow("Android Auto", "Car profile and compatibility", Icons.Rounded.DirectionsCar) { page = Page.AUTO }
@@ -417,10 +417,17 @@ class MainActivity : ComponentActivity() {
                 Text("Reference remains neutral. Enable only the processing your equipment needs.",
                   color=quiet,style=MaterialTheme.typography.bodySmall)
                 SurfaceCard {
-                  ToggleRow("4× intersample peak guard",settings.peakGuard) {
+                  ToggleRow("Volume-adaptive loudness",settings.loudness) {
+                    update(settings.copy(loudness=it))
+                  }
+                  Text("Keeps bass and treble balanced at low volume (equal-loudness). Off in the car and in Pure.",
+                    color=quiet,style=MaterialTheme.typography.bodySmall)
+                }
+                SurfaceCard {
+                  ToggleRow("Lookahead peak limiter",settings.peakGuard) {
                     update(settings.copy(peakGuard=it))
                   }
-                  Text("Experimental interpolated peak control on SEQ-owned PCM. Not a certified ITU true-peak limiter.",
+                  Text("Keeps EQ boosts loud without clipping: half headroom plus a 4× intersample lookahead limiter, for all media and SEQ playback. Not a certified ITU true-peak meter.",
                     color=quiet,style=MaterialTheme.typography.bodySmall)
                   if(settings.peakGuard) {
                     Text("Ceiling: "+String.format(Locale.US,"%.1f dB",settings.peakCeilingDb))

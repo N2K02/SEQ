@@ -19,11 +19,14 @@ data class EngineSettings(
   val aiEnabled: Boolean = false,
   val headphoneCorrection: Boolean = false,
   val convolution: Boolean = false,
-  val peakGuard: Boolean = false,
+  /** Lookahead limiter; also halves EQ headroom so boosts keep their loudness. */
+  val peakGuard: Boolean = true,
   val peakCeilingDb: Float = -1.0f,
   val usbDirect: Boolean = false,
   /** Process every app's media (incl. Android Auto) through the output-mix effect. */
-  val allMedia: Boolean = true
+  val allMedia: Boolean = true,
+  /** Equal-loudness compensation that follows the media volume (off in the car). */
+  val loudness: Boolean = true
 ) {
   fun activeTone(car: Boolean): Tone = when (profile) {
     AudioProfile.PURE -> Tone()
@@ -49,4 +52,22 @@ object ToneMath {
     val hz = (20.0 * Math.pow(1000.0, it / 240.0)).toInt()
     gainDb(hz, tone)
   }.coerceAtLeast(0f)
+}
+
+/**
+ * Volume-adaptive equal-loudness compensation (ISO 226 trend): the ear loses bass, and to a
+ * lesser degree treble, as playback level drops. Adds gentle shelf boosts that grow as the
+ * media volume is lowered and vanish at full volume, so the tonal balance stays constant.
+ */
+object LoudnessCompensation {
+  /** Approximate attenuation of Android's media volume curve, 0 dB at max. */
+  fun attenuationDb(volumeFraction: Float): Float =
+    ((1f - volumeFraction.coerceIn(0f, 1f)) * 40f)
+  fun apply(tone: Tone, volumeFraction: Float): Tone {
+    val att = attenuationDb(volumeFraction)
+    val bass = (att * 0.15f).coerceAtMost(5f)
+    val treble = (att * 0.05f).coerceAtMost(2f)
+    return tone.copy(bass = (tone.bass + bass).coerceIn(-6f, 9f),
+      treble = (tone.treble + treble).coerceIn(-6f, 8f))
+  }
 }

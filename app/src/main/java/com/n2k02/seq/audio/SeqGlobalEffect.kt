@@ -42,7 +42,8 @@ object SeqGlobalEffect {
     try {
       val car = SeqRoute.isCar(ctx, s)
       val preset = if (s.headphoneCorrection && !car) HeadphoneProfileStore(ctx).read() else null
-      current.apply(SystemEqCurveBuilder.build(s.activeTone(car), preset), s.peakGuard, s.peakCeilingDb)
+      current.apply(SystemEqCurveBuilder.build(SeqRoute.tone(ctx, s, car), preset,
+        limiter = s.peakGuard), s.peakGuard, s.peakCeilingDb)
       if (!current.setEnabled(true)) {
         release("All-media effect could not be enabled")
         return

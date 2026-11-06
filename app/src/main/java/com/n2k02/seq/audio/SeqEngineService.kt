@@ -148,7 +148,8 @@ class SeqEngineService : Service() {
   private fun apply(effect: SeqSystemEffect, s: EngineSettings) {
     val car = SeqRoute.isCar(this, s)
     val preset = if (s.headphoneCorrection && !car) HeadphoneProfileStore(this).read() else null
-    effect.apply(SystemEqCurveBuilder.build(s.activeTone(car), preset), s.peakGuard, s.peakCeilingDb)
+    effect.apply(SystemEqCurveBuilder.build(SeqRoute.tone(this, s, car), preset,
+      limiter = s.peakGuard), s.peakGuard, s.peakCeilingDb)
   }
   private fun detach(id: Int) {
     effects.remove(id)?.close()

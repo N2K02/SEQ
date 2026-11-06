@@ -12,6 +12,13 @@
 - AI is **foreground-only / opt-in** and uses an installed Google AICore model if supported. Output is parsed as three bounded EQ suggestions and applied only when user confirms. No continuous microphone, audio, or GPU workload.
 - Native DSP supports 16 biquads (3 tone bands + up to 12 imported), conservative headroom and allocation-free per-frame processing. It is connected to local Media3 decoded PCM16 and reference WAV playback, not injected into third-party apps.
 
+## Sound quality (engine investigation 2026-11-06)
+- **Headroom vs loudness:** a +6 dB boost previously cost 6 dB of overall loudness (full headroom), which listeners perceive as worse. With the limiter on (default), headroom is halved and a lookahead limiter catches remaining peaks — native and DynamicsProcessing paths alike.
+- **Native limiter:** replaced the block-wise instant gain jump (audible pumping/zipper) with a per-sample 64-frame lookahead envelope, 4× cubic intersample detection continuous across blocks, ~80 ms release, hard bound at the ceiling.
+- **Dither:** native output was truncated float→PCM16; now TPDF dither (±1 LSB) removes quantization distortion on quiet passages and fades.
+- **FIR normalization:** L1 normalization over-attenuated measured FIRs; now normalized by the peak of the magnitude response (unity worst case, no needless loss).
+- **Volume-adaptive loudness:** equal-loudness shelf compensation from media volume (up to +5 dB bass / +2 dB treble at low volume, 0 at max); off in car (head-unit volume) and Pure; re-applied on volume change.
+
 ## Fidelity principles
 - Do not advertise true bit-perfect audio if any platform equalizer is enabled.
 - Reference is neutral by default. "Refined" is a small subjective coloration and is labelled accordingly.

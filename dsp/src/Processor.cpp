@@ -21,14 +21,22 @@ void Processor::configure(const std::array<Band, MAX_BANDS>& bands,
       maxBoost=std::max(maxBoost, db);
     }
   }
-  pregainDb_=std::min(-maxBoost, userPreampDb);
-  scale_=static_cast<float>(std::pow(10.0,pregainDb_/20.0));
+  maxBoostDb_=maxBoost;
+  userPreampDb_=userPreampDb;
   enabled_=enabled;
+  updatePregain();
   clipped_=0;
   history_={};
   firCursor_=0;
   guardGain_=1.0;
   observedPeak_=0.0;
+  delay_={}; required_.fill(1.0); tail_={}; delayCursor_=0;
+}
+void Processor::updatePregain() noexcept {
+  // Full headroom without a limiter (never clips); half headroom with the limiter.
+  const double headroom=peakGuard_ ? maxBoostDb_*0.5 : maxBoostDb_;
+  pregainDb_=std::min(-headroom, userPreampDb_);
+  scale_=static_cast<float>(std::pow(10.0,pregainDb_/20.0));
 }
 void Processor::configureFir(const float* left,const float* right,std::size_t taps) {
   if(taps>MAX_FIR_TAPS || (taps>0 && (!left || !right)))
@@ -47,7 +55,20 @@ void Processor::configureFir(const float* left,const float* right,std::size_t ta
     }
     worst=std::max(worst,sum);
   }
-  firScale_=1.0/worst; // conservative L1 attenuation for arbitrary IR gain.
+  // Normalize by the peak of the magnitude response (not L1): no needless loudness loss,
+  // while no frequency can be amplified above unity.
+  for(std::size_t c=0;c<2 && taps>0;c++) {
+    for(int k=0;k<=512;k++) {
+      const double w=3.141592653589793*k/512.0;
+      double re=0.0, im=0.0;
+      for(std::size_t i=0;i<taps;i++) {
+        re+=impulse_[c][i]*std::cos(w*static_cast<double>(i));
+        im-=impulse_[c][i]*std::sin(w*static_cast<double>(i));
+      }
+      worst=std::max(worst,std::hypot(re,im));
+    }
+  }
+  firScale_=1.0/worst;
 }
 void Processor::configurePeakGuard(bool enabled,double ceilingDb) {
   if(!std::isfinite(ceilingDb) || ceilingDb> -0.1 || ceilingDb< -12.0)
@@ -56,6 +77,12 @@ void Processor::configurePeakGuard(bool enabled,double ceilingDb) {
   ceilingLinear_=std::pow(10.0,ceilingDb/20.0);
   guardGain_=1.0;
   observedPeak_=0.0;
+  // Attack reaches 99% within the lookahead window; ~80 ms release (rate-independent enough
+  // for 44.1–96 kHz; derived per sample from a 48 kHz reference).
+  attack_=1.0-std::exp(-5.0/static_cast<double>(LOOKAHEAD));
+  release_=1.0-std::exp(-1.0/(0.080*48000.0));
+  delay_={}; required_.fill(1.0); tail_={}; delayCursor_=0;
+  updatePregain();
 }
 static double cubic(double a,double b,double c,double d,double t) noexcept {
   return b + 0.5*t*(c-a+t*(2*a-5*b+4*c-d+t*(3*(b-c)+d-a)));
@@ -78,32 +105,44 @@ void Processor::process(float* pcm,std::size_t frames) noexcept {
     }
     firCursor_=(firCursor_+1)%MAX_FIR_TAPS;
   }
-  if(peakGuard_ && frames>0) {
-    double peak=0.0;
-    for(std::size_t i=0;i<frames;i++) {
-      for(std::size_t c=0;c<2;c++) {
-        const auto pos=[&](std::size_t j)->double { return pcm[2*j+c]; };
-        const double a=pos(i>0?i-1:0);
-        const double b=pos(i);
-        const double cc=pos(std::min(i+1,frames-1));
-        const double dd=pos(std::min(i+2,frames-1));
-        for(int phase=0;phase<4;phase++)
-          peak=std::max(peak,std::abs(cubic(a,b,cc,dd,phase*0.25)));
-      }
-    }
-    observedPeak_=std::max(observedPeak_,peak);
-    // Instant block attenuation and slow release. Conservative, not certified true peak.
-    const double allowed=peak>0 ? std::min(1.0,ceilingLinear_/peak) : 1.0;
-    if(allowed<guardGain_) guardGain_=allowed;
-    else guardGain_=std::min(allowed,guardGain_+0.001);
-    for(std::size_t i=0;i<frames*2;i++)
-      pcm[i]=static_cast<float>(pcm[i]*guardGain_);
-  }
+  if(peakGuard_ && frames>0) limit(pcm,frames);
   for(std::size_t i=0;i<frames*2;i++) {
     if(pcm[i]>1.0f || pcm[i]<-1.0f) {
       ++clipped_;
       pcm[i]=std::clamp(pcm[i],-1.0f,1.0f);
     }
+  }
+}
+void Processor::limit(float* pcm,std::size_t frames) noexcept {
+  for(std::size_t i=0;i<frames;i++) {
+    // 4x cubic intersample peak of the newest frame, continuous across block boundaries.
+    double peak=0.0;
+    for(std::size_t c=0;c<2;c++) {
+      const double a=tail_[c], b=tail_[2+c], cc=tail_[4+c], d=pcm[2*i+c];
+      for(int phase=0;phase<4;phase++)
+        peak=std::max(peak,std::abs(cubic(a,b,cc,d,phase*0.25)));
+      peak=std::max(peak,std::abs(d));
+      tail_[c]=tail_[2+c]; tail_[2+c]=tail_[4+c]; tail_[4+c]=pcm[2*i+c];
+    }
+    observedPeak_=std::max(observedPeak_,peak);
+    const std::size_t slot=delayCursor_;
+    const double needed=peak>ceilingLinear_ ? ceilingLinear_/peak : 1.0;
+    // Smallest gain needed by the outgoing sample, every sample still in the window and the
+    // newest one, so the envelope is already down when a peak leaves the delay line.
+    double target=needed;
+    for(double r : required_) target=std::min(target,r);
+    required_[slot]=needed;
+    guardGain_+=(target-guardGain_)*(target<guardGain_ ? attack_ : release_);
+    const double gain=guardGain_;
+    for(std::size_t c=0;c<2;c++) {
+      const float delayed=delay_[c][slot];
+      delay_[c][slot]=pcm[2*i+c];
+      const double out=delayed*gain;
+      // Safety net: the envelope already holds peaks below the ceiling; this only
+      // guarantees the bound if a transient outruns the attack.
+      pcm[2*i+c]=static_cast<float>(std::clamp(out,-ceilingLinear_,ceilingLinear_));
+    }
+    delayCursor_=(delayCursor_+1)%LOOKAHEAD;
   }
 }
 }

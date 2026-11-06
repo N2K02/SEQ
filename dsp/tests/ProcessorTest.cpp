@@ -90,5 +90,45 @@ int main() {
   float still[2]{1.f,-1.f};
   p.process(still,1);
   assert(still[0]==1.f && still[1]==-1.f); // Pure is identity.
+  // Limiter: half headroom keeps loudness, lookahead envelope keeps peaks under the ceiling.
+  {
+    std::array<Band,MAX_BANDS> bass{};
+    bass[0]=Band{FilterType::LowShelf,110.0,6.0,0.7071,true};
+    Processor safe, loud;
+    safe.configure(bass,48000,true);
+    loud.configure(bass,48000,true);
+    loud.configurePeakGuard(true,-1.0);
+    assert(loud.pregainDb()>safe.pregainDb()+2.5);
+    std::vector<float> a(48000*2), b;
+    for(std::size_t i=0;i<a.size()/2;i++) {
+      const float v=std::sin(2.0*3.141592653589793*60.0*i/48000.0)*(i%9600<960 ? 0.9f:0.45f);
+      a[2*i]=v; a[2*i+1]=v;
+    }
+    b=a;
+    safe.process(a.data(),a.size()/2);
+    for(std::size_t off=0;off<b.size();off+=2*480) // odd block sizes across boundaries
+      loud.process(b.data()+off,std::min<std::size_t>(480,(b.size()-off)/2));
+    const float ceiling=std::pow(10.0f,-1.0f/20.0f);
+    double rmsA=0, rmsB=0;
+    for(std::size_t i=0;i<a.size();i++) {
+      assert(std::isfinite(b[i]) && std::abs(b[i])<=ceiling+1e-6f);
+      rmsA+=a[i]*a[i]; rmsB+=b[i]*b[i];
+    }
+    assert(loud.clippedSamples()==0 && safe.clippedSamples()==0);
+    assert(rmsB>rmsA*1.35); // louder than full-headroom path, yet bounded
+  }
+  // FIR normalization never amplifies any frequency above unity.
+  {
+    std::array<Band,MAX_BANDS> flat{};
+    Processor fir;
+    fir.configure(flat,48000,true);
+    const float l[3]{.6f,.6f,-.6f}, r[3]{.6f,.6f,-.6f};
+    fir.configureFir(l,r,3);
+    std::vector<float> noise(20000);
+    unsigned x=12345;
+    for(auto& v:noise) { x=x*1664525u+1013904223u; v=((x>>9)/8388608.0f-0.5f)*1.8f; }
+    fir.process(noise.data(),noise.size()/2);
+    for(float v:noise) assert(std::abs(v)<=1.0f);
+  }
   std::cout << "SEQ reference DSP: all tests passed\n";
 }

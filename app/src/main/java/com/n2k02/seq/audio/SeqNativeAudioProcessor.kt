@@ -26,6 +26,17 @@ class SeqNativeAudioProcessor(private val context: Context) : BaseAudioProcessor
   private var seenRevision=Long.MIN_VALUE
   private var lastConfiguredAt=0L
   private var fadeRemaining=0
+  private var dither=0x2545F491
+
+  /** TPDF dither (±1 LSB) so the float DSP output is not truncated to 16-bit with distortion. */
+  private fun tpdf():Float {
+    var x=dither
+    x=x xor (x shl 13); x=x xor (x ushr 17); x=x xor (x shl 5)
+    val a=x and 0xFFFF
+    x=x xor (x shl 13); x=x xor (x ushr 17); x=x xor (x shl 5)
+    dither=x
+    return ((a - (x and 0xFFFF)) / 65536f)
+  }
 
   override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
     return if (inputAudioFormat.encoding==C.ENCODING_PCM_16BIT && inputAudioFormat.channelCount==2) {
@@ -46,7 +57,7 @@ class SeqNativeAudioProcessor(private val context: Context) : BaseAudioProcessor
       MeasuredImpulseStore(context).read()?.takeIf { it.sampleRate==inputAudioFormat.sampleRate }
       else null
     val updated=if(settings.profile==AudioProfile.PURE) null else runCatching {
-      NativeDsp(inputAudioFormat.sampleRate,settings.activeTone(car),true,correction,
+      NativeDsp(inputAudioFormat.sampleRate,SeqRoute.tone(context,settings,car),true,correction,
         impulse,settings.peakGuard,settings.peakCeilingDb.toDouble())
     }.onFailure {
       SeqRuntime.log("Native DSP unavailable: "+it.javaClass.simpleName)
@@ -125,7 +136,7 @@ class SeqNativeAudioProcessor(private val context: Context) : BaseAudioProcessor
       }
 
       for(i in 0 until frames*2) {
-        val pcm=(samples[i]*32768f).roundToInt().coerceIn(-32768,32767)
+        val pcm=(samples[i]*32768f+tpdf()).roundToInt().coerceIn(-32768,32767)
         output.putShort(pcm.toShort())
       }
     }
