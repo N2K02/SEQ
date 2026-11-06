@@ -13,6 +13,7 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.IBinder
+import android.os.Build
 import com.n2k02.seq.MainActivity
 import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.SettingsStore
@@ -48,6 +49,9 @@ class SeqReferencePlayerService : Service() {
     session.setCallback(object: MediaSession.Callback() {
       override fun onStop() { stopSelf() }
       override fun onPause() { stopSelf() }
+      override fun onPlayFromSearch(query: String?, extras: android.os.Bundle?) {
+        SeqRuntime.log("Reference player voice search unsupported")
+      }
     })
     session.isActive=true
   }
@@ -110,7 +114,9 @@ class SeqReferencePlayerService : Service() {
       val setting=SettingsStore(this).read()
       if(setting.usbDirect) {
         require(setting.profile==AudioProfile.PURE) { "USB direct requires Pure profile" }
-        check(android.os.Build.VERSION.SDK_INT>=34) { "USB Direct requires Android 14+" }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+          throw UnsupportedOperationException("USB Direct requires Android 14+")
+        }
         val playbackJob=currentCoroutineContext()[Job]
         UsbDirectOutput(audio,attributes).play(stream,fmt) { playbackJob?.isActive==true }
         return
