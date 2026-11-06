@@ -37,6 +37,37 @@ internal fun SeqAdbDiagnosticsScreen(
     SeqPairingAccessibilityService.isEnabled(context)
   }
 
+  // Mirror VRec's Home connection details without treating a saved
+  // authorization as a currently connected shell. Diagnostics is on demand.
+  val status by adb.state.collectAsState()
+  AdbSettingCard("SEQ ADB Details", Icons.Rounded.Info) {
+    Text(
+      when {
+        status.busy -> "Checking local ADB…"
+        status.connected && status.uidVerified -> "Connected • shell UID 2000 verified"
+        status.uidVerified -> "UID 2000 previously verified • disconnected"
+        else -> "ADB shell UID 2000 not verified"
+      },
+      style=MaterialTheme.typography.bodyLarge,
+      fontWeight=FontWeight.SemiBold,
+    )
+    Text("Transport: "+status.transport, style=MaterialTheme.typography.bodySmall)
+    Text("Last verified: "+(if(status.verifiedAt>0L)
+      java.text.DateFormat.getDateTimeInstance(
+        java.text.DateFormat.SHORT,java.text.DateFormat.SHORT
+      ).format(java.util.Date(status.verifiedAt))
+      else "Never"),
+      style=MaterialTheme.typography.bodySmall)
+    Text("Previously verified port: "+(status.lastVerifiedPort?.toString() ?: "None"),
+      style=MaterialTheme.typography.bodySmall)
+    Text("Automatic discovery: "+(if(status.scanning) "Scanning" else "Idle")+
+      " • Pairing port: "+(status.pairingPort?.toString() ?: "Not detected")+
+      " • Connection port: "+(status.connectPort?.toString() ?: "Not detected"),
+      style=MaterialTheme.typography.bodySmall)
+    Text(status.message,style=MaterialTheme.typography.bodySmall,
+      color=MaterialTheme.colorScheme.onSurfaceVariant)
+  }
+
   AdbSettingCard("Pairing & recovery",Icons.Rounded.SettingsInputAntenna) {
     AdbSettingToggle("Auto-detect pairing code",
       "Read the Android pairing dialog with Accessibility.",autoPair) {
