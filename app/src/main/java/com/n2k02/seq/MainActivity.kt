@@ -52,6 +52,7 @@ import com.n2k02.seq.model.*
 import com.n2k02.seq.adb.LocalAdbDiagnostics
 import com.n2k02.seq.adb.SeqPairingAccessibilityService
 import com.n2k02.seq.adb.SeqAdbRecoveryWorker
+import com.n2k02.seq.adb.SeqAdbUiPolicy
 import com.n2k02.seq.SeqUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
