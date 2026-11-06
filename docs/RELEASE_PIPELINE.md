@@ -51,3 +51,5 @@ ctest --test-dir dsp/build --output-on-failure
 ```
 
 The unsigned release artifact in CI is an intermediate input to the signing job, **not** an installable release. Download the signed APK from GitHub Releases.
+
+The encrypted signing archive is pinned to mRadio Git blob `5203c1095062ad22099f76d319605ae5b79c0720` and checked before decryption. The ciphertext is a copy of the public mRadio repository file; the signing passphrase is not checked in.

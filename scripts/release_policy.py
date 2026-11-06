@@ -1,49 +1,62 @@
 #!/usr/bin/env python3
-"""Strict stable/experimental version and tag policy for SEQ GitHub Actions."""
+"""SEQ stable and experimental versions: same one-decimal scheme as mRadio."""
 import argparse
 import re
 
-VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+_VERSION = re.compile(r"^[0-9]+\.[0-9]$")
 
 
-def validate(version: str) -> tuple[int, int, int]:
-    if not VERSION.fullmatch(version):
-        raise ValueError("version must be MAJOR.MINOR.PATCH")
-    values = tuple(int(part) for part in version.split("."))
-    if any(part > 9999 for part in values):
-        raise ValueError("version number is unreasonable")
-    return values
+def normalize(version: str) -> str:
+    result = version.removeprefix("v")
+    if not _VERSION.fullmatch(result):
+        raise ValueError("version must look like 1.0, one decimal digit")
+    return result
 
 
-def plan(channel: str, previous: str, requested: str, run: int) -> dict[str, str]:
+def plan(channel: str, previous: str, requested: str, run: int,
+         pr: int = 1, sha: str = "1234567") -> dict[str, str]:
     if channel not in ("stable", "experimental") or not 0 < run < 2_000_000_000:
-        raise ValueError("invalid release channel or run number")
-    previous = previous.removeprefix("v")
-    old = validate(previous) if previous else None
-    if requested and channel != "stable":
-        raise ValueError("explicit stable versions are only valid on main")
-    if channel == "stable":
+        raise ValueError("invalid release channel or run")
+    if not (1 <= pr < 1_000_000):
+        raise ValueError("invalid pull request number")
+    base = normalize(previous) if previous else "0.3"
+    if channel == "experimental":
         if requested:
-            ver = validate(requested)
-            if old is not None and ver <= old:
-                raise ValueError("stable version must advance beyond last stable tag")
-        else:
-            ver = (0, 3, 0) if old is None else (old[0], old[1], old[2] + 1)
+            raise ValueError("only stable releases may request a version")
+        version = base
+        tag = f"experimental-pr-{pr}-run-{run}"
+        name = f"SEQ-PR-{pr}-{sha[:7]}.apk"
+        variant = "Debug"
+        file = "app/build/outputs/apk/debug/app-debug.apk"
     else:
-        ver = old or (0, 3, 0)
-    version = ".".join(map(str, ver))
-    tag = f"v{version}" if channel == "stable" else f"experimental-pr-1-run-{run}"
-    name = f"SEQ-{version}.apk" if channel == "stable" else f"SEQ-{version}-exp-{run}.apk"
-    return {"SEQ_CHANNEL": channel, "SEQ_VERSION": version,
-            "SEQ_VERSION_CODE": str(100000 + run), "SEQ_TAG": tag, "SEQ_APK_NAME": name}
+        if requested:
+            version = normalize(requested)
+        else:
+            parts = base.split(".")
+            tenth = int(parts[0]) * 10 + int(parts[1]) + 1
+            version = f"{tenth // 10}.{tenth % 10}"
+        if tuple(map(int, version.split("."))) <= tuple(map(int, base.split("."))):
+            raise ValueError("stable version must increase from the public stable version")
+        tag = f"v{version}"
+        name = f"SEQ-{version}.apk"
+        variant = "Release"
+        file = "app/build/outputs/apk/release/app-release-unsigned.apk"
+    return {
+        "SEQ_CHANNEL": channel, "SEQ_VERSION": version,
+        "SEQ_VERSION_CODE": str(100000 + run), "SEQ_TAG": tag,
+        "SEQ_APK_NAME": name, "SEQ_BUILD_VARIANT": variant,
+        "SEQ_INPUT_APK": file
+    }
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--channel", choices=["stable", "experimental"], required=True)
-    parser.add_argument("--previous", default="")
-    parser.add_argument("--requested", default="")
-    parser.add_argument("--run", type=int, required=True)
-    args = parser.parse_args()
-    for key, value in plan(args.channel, args.previous, args.requested, args.run).items():
-        print(f"{key}={value}")
+    p = argparse.ArgumentParser()
+    p.add_argument("--channel", choices=["stable", "experimental"], required=True)
+    p.add_argument("--previous", default="")
+    p.add_argument("--requested", default="")
+    p.add_argument("--run", type=int, required=True)
+    p.add_argument("--pr", type=int, default=1)
+    p.add_argument("--sha", default="1234567")
+    a = p.parse_args()
+    for k, v in plan(a.channel, a.previous, a.requested, a.run, a.pr, a.sha).items():
+        print(f"{k}={v}")

@@ -2,10 +2,10 @@ plugins {
   id("com.android.application")
   id("org.jetbrains.kotlin.plugin.compose")
 }
-val seqVersion = providers.gradleProperty("seqVersion").orElse("0.3.0").get()
+val seqVersion = providers.gradleProperty("seqVersion").orElse("0.3").get()
 val seqChannel = providers.gradleProperty("seqChannel").orElse("experimental").get()
 val seqRun = providers.gradleProperty("seqBuild").orNull?.toIntOrNull()
-require(Regex("""[0-9]+\.[0-9]+\.[0-9]+""").matches(seqVersion))
+require(Regex("""[0-9]+\.[0-9]+""").matches(seqVersion))
 require(seqChannel in setOf("stable", "experimental"))
 require(seqRun == null || seqRun > 0)
 android {

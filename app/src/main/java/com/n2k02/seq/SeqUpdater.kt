@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 object SeqUpdater {
   private lateinit var app: Context
   private var instance:UpdaterController? = null
-  val experimentalEnabled=MutableStateFlow(true)
+  val experimentalEnabled=MutableStateFlow(false)
   val installGuard=UpdateInstallGuard {
     !SeqRuntime.status.value.running &&
       SeqRuntime.media.value=="Stopped" &&
@@ -24,7 +24,7 @@ object SeqUpdater {
   fun init(context:Context) {
     app=context.applicationContext
     if(instance!=null) return
-    experimentalEnabled.value=prefs().getBoolean("experimentalEnabled",true)
+    experimentalEnabled.value=prefs().getBoolean("experimentalEnabled",false)
     instance=create()
   }
   @Suppress("DEPRECATION")
@@ -39,7 +39,7 @@ object SeqUpdater {
       installedVersionCode=currentVersion(),
       experimentalEnabled=experimentalEnabled.value
     ),
-    publishedSource=PublishedUpdateSource("https://raw.githubusercontent.com/N2K02/SEQ/gh-pages/updates"),
+    publishedSource=PublishedUpdateSource("https://n2k02.github.io/seq/updates"),
     offerPreferences=prefs()
   )
   val controller:UpdaterController get()=requireNotNull(instance)
