@@ -203,8 +203,11 @@ object AdbTransport {
                         lastKnownConnected = false
                         shell = null
                     }
-                    session = session ?: ShellSession(mgr.openStream(SHELL_SERVICE)).also { shell = it }
                     try {
+                        // An openStream failure must reach the same catch/finally
+                        // as a broken read, otherwise the independent watchdog
+                        // can outlive a failed command and kill a fresh session.
+                        session = session ?: ShellSession(mgr.openStream(SHELL_SERVICE)).also { shell = it }
                         session!!.run(command)
                     } catch (t: Throwable) {
                         // A desynchronised session stays desynchronised, and a
