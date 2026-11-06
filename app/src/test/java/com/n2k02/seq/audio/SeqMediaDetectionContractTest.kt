@@ -36,6 +36,18 @@ class SeqMediaDetectionContractTest {
     assertTrue(manifest.contains("SeqMediaSessionListener"))
     assertTrue(activity.contains("ACTION_NOTIFICATION_LISTENER_SETTINGS"))
     assertTrue(activity.contains("SeqMediaSessionListener.detectedPlayer.collectAsState()"))
-    assertTrue(activity.contains("!status.effectAttached"))
+    assertTrue(activity.contains("!status.processing"))
+  }
+  @Test fun playbackChangesDriveAllMediaEffectForPhoneAndAndroidAuto() {
+    val listener=source("java/com/n2k02/seq/audio/SeqMediaSessionListener.kt")
+    val engine=source("java/com/n2k02/seq/audio/SeqEngineService.kt")
+    val global=source("java/com/n2k02/seq/audio/SeqGlobalEffect.kt")
+    assertTrue(listener.contains("SeqGlobalEffect.sync(this)"))
+    assertTrue(engine.contains("UiModeManager.ACTION_ENTER_CAR_MODE"))
+    assertTrue(engine.contains("SeqGlobalEffect.sync(this)"))
+    assertTrue(global.contains("SessionPolicy.shouldProcessAllMedia"))
+    assertTrue(global.contains("OUTPUT_MIX = 0"))
+    for(player in listOf("SeqMediaLibraryService.kt","SeqReferencePlayerService.kt"))
+      assertTrue(source("java/com/n2k02/seq/audio/$player").contains("SeqOwnedAudioSessions.setPlaying"))
   }
 }

@@ -14,10 +14,7 @@ class NativeDsp(
   companion object { init { System.loadLibrary("seq_jni") } }
   private var handle = nCreate()
   init {
-    val filters = ArrayList<EqFilter>()
-    filters += EqFilter(FilterKind.LOW_SHELF,110.0,tone.bass.toDouble(),0.7071)
-    filters += EqFilter(FilterKind.PEAK,1100.0,tone.mid.toDouble(),0.80)
-    filters += EqFilter(FilterKind.HIGH_SHELF,6000.0,tone.treble.toDouble(),0.7071)
+    val filters = ArrayList(EqResponse.toneFilters(tone))
     preset?.filters?.filter { it.enabled }?.let { filters.addAll(it) }
     require(filters.size<=16) { "Too many DSP filters" }
     val spec = DoubleArray(filters.size*4) { index ->

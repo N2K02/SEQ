@@ -9,8 +9,13 @@ data class EngineStatus(
   val lastEvent: String = "Engine off",
   val carProfileActive: Boolean = false,
   val route: String = "Unknown",
-  val effectAttached: Boolean = false
-)
+  val effectAttached: Boolean = false,
+  /** Output-mix effect active: every app's media, incl. Android Auto, is processed. */
+  val globalActive: Boolean = false,
+  val effectEngine: String = ""
+) {
+  val processing: Boolean get() = effectAttached || globalActive
+}
 object SeqRuntime {
   val status = MutableStateFlow(EngineStatus())
   val player = MutableStateFlow("Stopped")
@@ -24,5 +29,12 @@ object SeqRuntime {
   }
   fun logs(): List<String> = ring.toList()
   fun clear() { ring.clear() }
-  fun reset() { status.value = EngineStatus(); log("All SEQ effects released") }
+  /** Engine service stopped; the all-media effect has its own lifecycle and is preserved. */
+  fun reset() {
+    val s = status.value
+    status.value = EngineStatus(globalActive = s.globalActive, effectEngine = s.effectEngine,
+      carProfileActive = s.carProfileActive, route = s.route,
+      lastEvent = if (s.globalActive) s.lastEvent else "Engine off")
+    log("Session effects released")
+  }
 }

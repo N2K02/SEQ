@@ -94,17 +94,23 @@ object EqResponse {
       -v*sin(x)-z*sin(2*x))
     return 20.0*log10(magnitude(b0,b1,b2)/magnitude(a0,a1,a2))
   }
-  fun totalDb(hz:Int,tone:Tone,profile:HeadphoneProfile?):Double =
-    ToneMath.gainDb(hz,tone).toDouble()+
-      (profile?.filters?.sumOf { db(hz.toDouble(),it) } ?: 0.0)
+  /** The three tone filters used by the native DSP; single source of truth for every path. */
+  fun toneFilters(tone:Tone):List<EqFilter> = listOf(
+    EqFilter(FilterKind.LOW_SHELF,110.0,tone.bass.toDouble(),0.7071),
+    EqFilter(FilterKind.PEAK,1100.0,tone.mid.toDouble(),0.80),
+    EqFilter(FilterKind.HIGH_SHELF,6000.0,tone.treble.toDouble(),0.7071)
+  )
 
+  /** Exact biquad response of tone + optional correction (same filters as native DSP). */
+  fun totalDb(hz:Double,tone:Tone,profile:HeadphoneProfile?):Double =
+    toneFilters(tone).sumOf { db(hz,it) } +
+      (profile?.filters?.sumOf { db(hz,it) } ?: 0.0)
+  fun totalDb(hz:Int,tone:Tone,profile:HeadphoneProfile?):Double = totalDb(hz.toDouble(),tone,profile)
+
+  /** Attenuation needed so the largest boost (or a stricter preset preamp) cannot clip. */
   fun headroomDb(tone:Tone, profile:HeadphoneProfile?):Double {
-    if(profile==null) return ToneMath.headroomDb(tone).toDouble()
-    val maxBoost=(0..400).maxOf { i ->
-      val f=(20.0*1000.0.pow(i/400.0)).toInt()
-      totalDb(f,tone,profile)
-    }
-    return max(0.0,max(-profile.preampDb,maxBoost))
+    val maxBoost=(0..400).maxOf { i -> totalDb(20.0*1000.0.pow(i/400.0),tone,profile) }
+    return max(0.0,max(-(profile?.preampDb ?: 0.0),maxBoost))
   }
 }
 

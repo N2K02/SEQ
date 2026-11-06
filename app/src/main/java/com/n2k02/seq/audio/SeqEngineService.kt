@@ -12,23 +12,24 @@ import android.content.IntentFilter
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.app.UiModeManager
 import android.media.audiofx.AudioEffect
-import android.media.audiofx.Equalizer
 import android.os.Build
 import android.os.IBinder
 import com.n2k02.seq.MainActivity
 import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.EngineSettings
 import com.n2k02.seq.model.SettingsStore
-import com.n2k02.seq.model.ToneMath
-import com.n2k02.seq.model.EqResponse
 import com.n2k02.seq.model.HeadphoneProfileStore
-import com.n2k02.seq.audio.SeqOwnedAudioSessions
+import com.n2k02.seq.model.SystemEqCurveBuilder
 
 /**
- * User-started foreground session-effects service.
- * No implicit background starts. Sessions are accepted only through Android's opt-in
- * playback session OPEN/CLOSE control broadcasts. Never attaches to global session 0.
+ * User-started foreground engine service.
+ * All-media mode (default): drives the output-mix effect ([SeqGlobalEffect]) so every app's
+ * media — phone speaker, headphones and Android Auto — is processed, re-applying on route,
+ * car-mode and settings changes.
+ * Per-app mode: attaches to positive session IDs announced by Android's opt-in
+ * OPEN/CLOSE control broadcasts only.
  */
 class SeqEngineService : Service() {
   companion object {
@@ -39,13 +40,19 @@ class SeqEngineService : Service() {
     fun intent(context: Context, action: String) =
       Intent(context, SeqEngineService::class.java).setAction(action)
   }
-  private val effects = LinkedHashMap<Int, Equalizer>()
+  private val effects = LinkedHashMap<Int, SeqSystemEffect>()
   private lateinit var audio: AudioManager
   private lateinit var settings: SettingsStore
   private var receiverRegistered = false
   private var callbackRegistered = false
   private val receiver = object : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+      when (intent.action) {
+        UiModeManager.ACTION_ENTER_CAR_MODE, UiModeManager.ACTION_EXIT_CAR_MODE -> {
+          refresh()
+          return
+        }
+      }
       val id = intent.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, -1)
       val source = intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME)
       if (!SessionPolicy.isExternalSession(id,source,packageName) ||
@@ -68,6 +75,8 @@ class SeqEngineService : Service() {
     val filter = IntentFilter().apply {
       addAction(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION)
       addAction(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION)
+      addAction(UiModeManager.ACTION_ENTER_CAR_MODE)
+      addAction(UiModeManager.ACTION_EXIT_CAR_MODE)
     }
     if (Build.VERSION.SDK_INT >= 33) {
       registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
@@ -81,6 +90,7 @@ class SeqEngineService : Service() {
   }
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == STOP || !settings.read().enabled) {
+      SeqGlobalEffect.sync(this)
       stopSelf()
       return START_NOT_STICKY
     }
@@ -88,105 +98,85 @@ class SeqEngineService : Service() {
       val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
       manager.createNotificationChannel(NotificationChannel(CHANNEL, "SEQ audio engine", NotificationManager.IMPORTANCE_LOW))
       startForeground(1001, notification())
-      SeqRuntime.status.value = SeqRuntime.status.value.copy(running = true, lastEvent = "Waiting for compatible audio session")
+      SeqRuntime.status.value = SeqRuntime.status.value.copy(running = true)
       refresh()
     } catch (e: Exception) {
       SeqRuntime.log("Engine start failed: " + e.javaClass.simpleName)
       stopSelf()
     }
-    return START_NOT_STICKY
+    // Restart after low-memory kills so all-media processing resumes without opening the app.
+    return START_STICKY
   }
   private fun notification(): Notification {
     val open = PendingIntent.getActivity(
       this, 0, Intent(this, MainActivity::class.java),
       PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
     )
+    val text = if (settings.read().allMedia) "Processing all media • phone and Android Auto"
+      else "Processing compatible apps"
     return Notification.Builder(this, CHANNEL)
       .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle("SEQ")
-      .setContentText("Audio session processing • compatible apps only")
+      .setContentText(text)
       .setOngoing(true).setContentIntent(open).build()
-  }
-  private fun routeInfo(): Pair<Boolean, String> {
-    val s = settings.read()
-    val outputs = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-    val carByName = s.carDeviceName.isNotBlank() && outputs.any {
-      it.productName?.toString()?.equals(s.carDeviceName, ignoreCase = true) == true
-    }
-    val car = s.carManual || (s.automaticCarProfile && carByName)
-    val title = if (car) "Car profile (selected)" else outputs.firstOrNull {
-      it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == AudioDeviceInfo.TYPE_USB_DEVICE
-    }?.productName?.toString() ?: "Phone / other output"
-    return car to title.take(80)
   }
   private fun attach(id: Int) {
     val s = settings.read()
     if (!SessionPolicy.canAttach(s, id, effects.containsKey(id))) return
-    var created: Equalizer? = null
+    val effect = SeqSystemEffect.create(0, id)
+    if (effect == null) {
+      SeqRuntime.log("Session effect unavailable (control denied)")
+      report("Audio effect unavailable")
+      return
+    }
     try {
-      val eq = Equalizer(0, id)
-      created = eq
-      if (!eq.hasControl()) {
-        eq.release()
-        SeqRuntime.log("Session effect unavailable (control denied)")
+      apply(effect, s)
+      if (!effect.setEnabled(true)) {
+        effect.close()
+        SeqRuntime.log("Session effect could not be enabled")
         return
       }
-      apply(eq, s)
-      val rc = eq.setEnabled(true)
-      if (rc != AudioEffect.SUCCESS || !eq.enabled) {
-        eq.release()
-        SeqRuntime.log("Session equalizer could not be enabled")
-        return
-      }
-      effects[id] = eq
-      created = null
-      SeqRuntime.log("Effect attached to compatible session")
+      effects[id] = effect
+      SeqRuntime.log("Effect attached to compatible session (" + effect.engine + ")")
       report("Audio session attached")
     } catch (e: Exception) {
-      runCatching { created?.release() }
+      effect.close()
       SeqRuntime.log("Attach failed: " + e.javaClass.simpleName)
       report("Audio effect unavailable")
     }
   }
-  private fun apply(eq: Equalizer, s: EngineSettings) {
-    val (car, _) = routeInfo()
-    val tone = s.activeTone(car)
-    val preset = if (s.headphoneCorrection && !car)
-      HeadphoneProfileStore(this).read() else null
-    val headroom = EqResponse.headroomDb(tone, preset)
-    val range = eq.bandLevelRange
-    for (i in 0 until eq.numberOfBands.toInt()) {
-      val freq = eq.getCenterFreq(i.toShort()) / 1000
-      // Approximation at OEM fixed band centers; native owned playback uses exact filters.
-      val millibel = ((EqResponse.totalDb(freq, tone, preset) - headroom) * 100.0)
-        .toInt().coerceIn(range[0].toInt(), range[1].toInt()).toShort()
-      eq.setBandLevel(i.toShort(), millibel)
-    }
+  private fun apply(effect: SeqSystemEffect, s: EngineSettings) {
+    val car = SeqRoute.isCar(this, s)
+    val preset = if (s.headphoneCorrection && !car) HeadphoneProfileStore(this).read() else null
+    effect.apply(SystemEqCurveBuilder.build(s.activeTone(car), preset), s.peakGuard, s.peakCeilingDb)
   }
   private fun detach(id: Int) {
-    effects.remove(id)?.let { runCatching { it.setEnabled(false); it.release() } }
+    effects.remove(id)?.close()
     report("Audio session closed")
   }
   private fun refresh() {
     val s = settings.read()
-    if (s.profile == AudioProfile.PURE) {
+    SeqGlobalEffect.sync(this)
+    if (s.profile == AudioProfile.PURE || !SessionPolicy.acceptsSessionBroadcasts(s)) {
       releaseAll()
-      report("Pure bypass")
+      report(if (s.profile == AudioProfile.PURE) "Pure bypass" else SeqRuntime.status.value.lastEvent)
       return
     }
-    effects.entries.toList().forEach { (id, eq) ->
-      try { apply(eq, s) } catch (e: Exception) { detach(id) }
+    effects.entries.toList().forEach { (id, effect) ->
+      try { apply(effect, s) } catch (e: Exception) { detach(id) }
     }
-    report("Settings updated")
+    report(if (effects.isEmpty()) "Waiting for compatible audio session" else "Settings updated")
   }
   private fun releaseAll() {
-    effects.values.forEach { runCatching { it.setEnabled(false); it.release() } }
+    effects.values.forEach { it.close() }
     effects.clear()
   }
   private fun report(message: String) {
-    val (car, route) = routeInfo()
-    SeqRuntime.status.value = EngineStatus(
+    val s = settings.read()
+    val car = SeqRoute.isCar(this, s)
+    SeqRuntime.status.value = SeqRuntime.status.value.copy(
       running = true, sessions = effects.size, lastEvent = message,
-      carProfileActive = car, route = route, effectAttached = effects.isNotEmpty()
+      carProfileActive = car, route = SeqRoute.describe(this, car),
+      effectAttached = effects.isNotEmpty()
     )
   }
   override fun onDestroy() {

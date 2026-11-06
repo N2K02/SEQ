@@ -21,7 +21,9 @@ data class EngineSettings(
   val convolution: Boolean = false,
   val peakGuard: Boolean = false,
   val peakCeilingDb: Float = -1.0f,
-  val usbDirect: Boolean = false
+  val usbDirect: Boolean = false,
+  /** Process every app's media (incl. Android Auto) through the output-mix effect. */
+  val allMedia: Boolean = true
 ) {
   fun activeTone(car: Boolean): Tone = when (profile) {
     AudioProfile.PURE -> Tone()

@@ -1,7 +1,6 @@
 package com.n2k02.seq.audio
 
 import android.content.Context
-import android.media.AudioManager
 import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
@@ -40,12 +39,7 @@ class SeqNativeAudioProcessor(private val context: Context) : BaseAudioProcessor
 
   private fun reconfigure(crossfade:Boolean) {
     val settings=SettingsStore(context).read()
-    val audio=context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    val carConnected=settings.automaticCarProfile && settings.carDeviceName.isNotBlank() &&
-      audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
-        it.productName?.toString()?.equals(settings.carDeviceName,ignoreCase=true)==true
-      }
-    val car=settings.carManual || carConnected
+    val car=SeqRoute.isCar(context,settings)
     val correction=if(settings.headphoneCorrection && !car &&
       settings.profile!=AudioProfile.PURE) HeadphoneProfileStore(context).read() else null
     val impulse=if(settings.convolution && !car && settings.profile!=AudioProfile.PURE)

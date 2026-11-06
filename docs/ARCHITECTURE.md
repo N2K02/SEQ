@@ -2,8 +2,10 @@
 
 ## Scope of this experimental branch
 - UI: charcoal Material 3, top-left page title + top-right SEQ brand, Home / Settings / Quit. Settings: EQ, device profiles, Android Auto, optional AI, Diagnostics, Logs, Updates, About.
-- Foreground service started explicitly by user. Only attaches to positive, cooperative Android audio-session IDs (never global mix ID 0); attaches and releases by OPEN/CLOSE actions. Cannot guarantee third-party-app interoperability.
-- Platform Equalizer bands are queried from OEM and adjusted conservatively with an estimated attenuation budget. No compressor, reverb, spatializer, loudness maximizer, or automatic music analysis.
+- **All media (default):** `SeqGlobalEffect` attaches one effect to the output mix (session 0) so every app's media — speaker, headphones and Android Auto — is processed without needing players to broadcast a session. It is driven by the engine service (settings, route, car-mode changes) and the system-bound media listener (playback start/stop, boot). It is suspended while SEQ's own player plays (native DSP already applied) and released on Pure / engine off.
+- **Per-app mode (All media off):** attaches only to positive session IDs announced by OPEN/CLOSE control broadcasts.
+- Both modes use `SeqSystemEffect`: DynamicsProcessing with 31 one-third-octave bands sampled from the *same* biquad response as the native DSP, input-gain headroom and optional limiter (peak guard); OEM Equalizer is only a fallback.
+- Car profile: manual, named Bluetooth device, or Android Auto car UI mode (`SeqRoute`). No compressor, reverb, spatializer, loudness maximizer, or automatic music analysis.
 - Direct ADB is **on demand**, using a localhost-only embedded ADB client with a separate persisted key. SEQ verifies the result of `id -u` is precisely 2000, runs fixed read-only audio commands, and immediately disconnects. No Shizuku, UserService, root, or TCP/5555 enable operation.
 - Android Auto route correction is **conditional** on attachable music session and user-specified Bluetooth output matching or explicit car mode. A connected output is not necessarily the active media route. No car-screen app is advertised because SEQ is not a media player.
 - AI is **foreground-only / opt-in** and uses an installed Google AICore model if supported. Output is parsed as three bounded EQ suggestions and applied only when user confirms. No continuous microphone, audio, or GPU workload.

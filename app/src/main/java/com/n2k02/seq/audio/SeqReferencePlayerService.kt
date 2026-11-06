@@ -93,13 +93,7 @@ class SeqReferencePlayerService : Service() {
     }
     return count
   }
-  private fun carProfile(): Boolean {
-    val s=SettingsStore(this).read()
-    return s.carManual || (s.automaticCarProfile && s.carDeviceName.isNotBlank() &&
-      audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
-        it.productName?.toString()?.equals(s.carDeviceName,ignoreCase=true)==true
-      })
-  }
+  private fun carProfile(): Boolean = SeqRoute.isCar(this,SettingsStore(this).read())
   private suspend fun play(uri: Uri) {
     val attributes=AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
       .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
@@ -146,6 +140,8 @@ class SeqReferencePlayerService : Service() {
             .setState(PlaybackState.STATE_PLAYING,0,1f).build())
           SeqRuntime.player.value="Playing "+fmt.sampleRate+" Hz • "+setting.profile.title
           track.play()
+          // Own native DSP already processes this PCM: suspend the all-media effect.
+          if(SeqOwnedAudioSessions.setPlaying("reference",true)) SeqGlobalEffect.sync(this@SeqReferencePlayerService)
           while (remaining>0 && currentCoroutineContext().isActive) {
             val limit=minOf(bytes.size.toLong(),remaining).toInt()
             val read=readChunk(stream,bytes,limit)
@@ -165,6 +161,7 @@ class SeqReferencePlayerService : Service() {
         }
       } finally {
         runCatching { track.pause(); track.flush(); track.release() }
+        if(SeqOwnedAudioSessions.setPlaying("reference",false)) SeqGlobalEffect.sync(this@SeqReferencePlayerService)
       }
     } ?: throw IllegalArgumentException("Cannot open file")
   }

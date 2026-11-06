@@ -48,6 +48,7 @@ import com.n2k02.seq.audio.LocalTrack
 import com.n2k02.seq.audio.SeqMediaLibraryService
 import com.n2k02.seq.audio.SeqMediaSessionListener
 import com.n2k02.seq.audio.SeqEngineService
+import com.n2k02.seq.audio.SeqGlobalEffect
 import com.n2k02.seq.audio.SeqReferencePlayerService
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.model.*
@@ -178,6 +179,7 @@ class MainActivity : ComponentActivity() {
       fun update(next: EngineSettings) {
         settings = next
         store.write(next)
+        SeqGlobalEffect.sync(this)
         if (!next.enabled) stopService(SeqEngineService.intent(this, SeqEngineService.STOP))
         else {
           val command = if (status.running) SeqEngineService.REFRESH else SeqEngineService.START
@@ -229,14 +231,30 @@ class MainActivity : ComponentActivity() {
                   Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.weight(1f)) {
                       Text("Audio Engine", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                      Text(if (status.effectAttached) "● Effect attached" else if (status.running) "Waiting for compatible player" else "Off",
-                        color = if (status.effectAttached) accent else quiet)
+                      Text(when {
+                          status.globalActive -> "● Processing all media"
+                          status.effectAttached -> "● Effect attached"
+                          settings.enabled -> status.lastEvent
+                          else -> "Off"
+                        }, color = if (status.processing) accent else quiet)
                     }
                     Switch(checked = settings.enabled, onCheckedChange = {
                       if (it && Build.VERSION.SDK_INT >= 33 &&
                         checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                         requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 109)
                       update(settings.copy(enabled = it))
+                    })
+                  }
+                }
+                SurfaceCard {
+                  Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.weight(1f)) {
+                      Text("All media", fontWeight = FontWeight.SemiBold)
+                      Text(if (settings.allMedia) "Every app, incl. Android Auto"
+                        else "Only apps that open an effect session", color = quiet, fontSize = 12.sp)
+                    }
+                    Switch(checked = settings.allMedia, onCheckedChange = {
+                      update(settings.copy(allMedia = it))
                     })
                   }
                 }
@@ -250,7 +268,7 @@ class MainActivity : ComponentActivity() {
                   if(!mediaListenerConnected) TextButton(onClick={
                     startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                   }) { Text("Grant media detection access") }
-                  else if(externalPlayer!=null && !status.effectAttached)
+                  else if(externalPlayer!=null && !status.processing && !settings.allMedia)
                     Text("Player detected; Android has not exposed a compatible audio-effect session.",
                       color=quiet,fontSize=12.sp)
                 }
@@ -288,9 +306,11 @@ class MainActivity : ComponentActivity() {
                     Column {
                       Text("Signal Path", fontWeight = FontWeight.SemiBold)
                       Text(if(nativeStatus=="Native EQ active") "SEQ native processing • active"
-                        else if(status.effectAttached) "Platform EQ • "+status.sessions+" session(s)"
+                        else if(status.globalActive) "All media • "+status.effectEngine+" • "+status.route
+                        else if(status.effectAttached) "Session EQ • "+status.sessions+" session(s)"
                         else if(settings.profile==AudioProfile.PURE) "Pure bypass"
-                        else "No external session effect attached", color=quiet, fontSize=12.sp)
+                        else if(settings.enabled) status.lastEvent
+                        else "Engine off", color=quiet, fontSize=12.sp)
                     }
                   }
                 }

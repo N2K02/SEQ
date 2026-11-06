@@ -5,7 +5,7 @@ SEQ is a battery-conscious experimental sound engine, with a minimal neutral Mat
 **Experimental PR:** https://github.com/N2K02/SEQ/pull/1
 
 ## Working components under development
-- Opt-in user-started Android audio-session Equalizer effects for *cooperating* players, with Pure / Reference / Refined modes and release-on-close.
+- **All media** processing (default): output-mix DynamicsProcessing EQ (31 bands, headroom, optional limiter) for every app, including Android Auto; per-app session mode available.
 - Native C++20 DSP with 3 tone controls and up to 12 imported measured filters, used by the Media3 PCM16 processor and direct WAV reference player.
 - Media3 local music library + actual Android Auto MediaLibraryService (host validation pending); car profiles can be selected manually or by named connected output. Imported AutoEq headphone corrections are optional.
 - Optional direct ADB diagnostics over loopback, using VRec's libadb architecture, persistent per-app ADB identity and shell UID 2000 verification. Connection is on demand and closes after diagnostics.
@@ -14,8 +14,8 @@ SEQ is a battery-conscious experimental sound engine, with a minimal neutral Mat
 
 ## Accuracy and safety
 - Direct/Pure bypass means no SEQ effect, **not** bit-perfect end-to-end hardware playback.
-- Spotify and other external apps require compatible audio sessions; SEQ never force-captures other apps or attaches to global mix ID 0. Android Auto music browsing is implemented for SEQ's **own local library**, but car hardware compatibility is not yet verified.
-- System backend uses OEM-provided fixed-band Equalizer. Native C++ backend is available only for our supported owned PCM playback.
+- Output-mix effects are deprecated by Android but supported on Pixel; another EQ app with control of the mix (e.g. Wavelet) takes precedence. Android Auto projection routing must be verified on a head unit/DHU.
+- Native C++ backend is used for SEQ's own playback; the platform effect is suspended then to avoid double EQ.
 - No compressor, artificial stereo widening, continuous AI processing, GPU signal processing, polling loops or microphone permission. AutoEq correction is off until explicitly enabled.
 - Native audio has not yet been verified against calibrated listening equipment. Media3's native DSP supports decoded **stereo PCM16**, with other formats limited by device decoder support; it does not promise bit-perfect audio.
 

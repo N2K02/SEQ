@@ -5,7 +5,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionPolicyTest {
-  private val active=EngineSettings(enabled=true)
+  private val active=EngineSettings(enabled=true, allMedia=false)
   @Test fun disabledCannotCreateAnEffect() {
     assertFalse(SessionPolicy.canAttach(active.copy(enabled=false), 9, false))
   }
@@ -22,5 +22,35 @@ class SessionPolicyTest {
   }
   @Test fun activeEffectCanBeReopenedAfterClose() {
     assertTrue(SessionPolicy.canAttach(active, 9, false))
+  }
+  @Test fun allMediaIsDefaultAndDisablesPerSessionEffects() {
+    assertTrue(EngineSettings().allMedia)
+    val global=EngineSettings(enabled=true)
+    assertFalse(SessionPolicy.canAttach(global, 9, false))
+    assertFalse(SessionPolicy.acceptsSessionBroadcasts(global))
+    assertTrue(SessionPolicy.acceptsSessionBroadcasts(active))
+  }
+  @Test fun allMediaRunsOnlyWhenEnabledProcessedAndNotOwnPlayback() {
+    val global=EngineSettings(enabled=true)
+    assertTrue(SessionPolicy.shouldProcessAllMedia(global, false))
+    assertFalse(SessionPolicy.shouldProcessAllMedia(global, true))
+    assertFalse(SessionPolicy.shouldProcessAllMedia(global.copy(enabled=false), false))
+    assertFalse(SessionPolicy.shouldProcessAllMedia(global.copy(profile=AudioProfile.PURE), false))
+    assertFalse(SessionPolicy.shouldProcessAllMedia(active, false))
+  }
+  @Test fun carProfileFollowsAndroidAutoCarModeOrNamedDevice() {
+    assertTrue(CarPolicy.isCar(manual=true, automatic=false, carMode=false, namedDeviceConnected=false))
+    assertTrue(CarPolicy.isCar(manual=false, automatic=true, carMode=true, namedDeviceConnected=false))
+    assertTrue(CarPolicy.isCar(manual=false, automatic=true, carMode=false, namedDeviceConnected=true))
+    assertFalse(CarPolicy.isCar(manual=false, automatic=false, carMode=true, namedDeviceConnected=true))
+    assertFalse(CarPolicy.isCar(manual=false, automatic=true, carMode=false, namedDeviceConnected=false))
+  }
+  @Test fun ownPlaybackStateReportsOnlyTransitions() {
+    assertTrue(SeqOwnedAudioSessions.setPlaying("a", true))
+    assertFalse(SeqOwnedAudioSessions.setPlaying("b", true))
+    assertTrue(SeqOwnedAudioSessions.ownPlaybackActive())
+    assertFalse(SeqOwnedAudioSessions.setPlaying("a", false))
+    assertTrue(SeqOwnedAudioSessions.setPlaying("b", false))
+    assertFalse(SeqOwnedAudioSessions.ownPlaybackActive())
   }
 }

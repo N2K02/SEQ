@@ -20,7 +20,8 @@ class SettingsStore(context: Context) {
       convolution = prefs.getBoolean("convolution", false),
       peakGuard = prefs.getBoolean("peak_guard", false),
       peakCeilingDb = prefs.getFloat("peak_ceiling", -1.0f).coerceIn(-12f, -0.1f),
-      usbDirect = prefs.getBoolean("usb_direct", false)
+      usbDirect = prefs.getBoolean("usb_direct", false),
+      allMedia = prefs.getBoolean("all_media", true)
     )
   }
   fun write(s: EngineSettings) {
@@ -34,7 +35,8 @@ class SettingsStore(context: Context) {
       .putBoolean("ai", s.aiEnabled).putBoolean("headphone_correction", s.headphoneCorrection)
       .putBoolean("convolution",s.convolution).putBoolean("peak_guard",s.peakGuard)
       .putFloat("peak_ceiling",s.peakCeilingDb.coerceIn(-12f,-0.1f))
-      .putBoolean("usb_direct",s.usbDirect).apply()
+      .putBoolean("usb_direct",s.usbDirect)
+      .putBoolean("all_media",s.allMedia).apply()
     SeqAudioRevision.changed()
   }
 }

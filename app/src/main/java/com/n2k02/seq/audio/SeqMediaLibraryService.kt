@@ -116,6 +116,9 @@ class SeqMediaLibraryService : MediaLibraryService() {
         SeqRuntime.log("Media playback failed: "+error.errorCodeName)
       }
       override fun onIsPlayingChanged(isPlaying:Boolean) {
+        // Native DSP already processes SEQ's own playback: avoid a second (all-media) EQ.
+        if(SeqOwnedAudioSessions.setPlaying("library",isPlaying))
+          SeqGlobalEffect.sync(this@SeqMediaLibraryService)
         if(isPlaying) SeqRuntime.media.value="Playing"
         else if(player.playbackState==Player.STATE_READY) SeqRuntime.media.value="Paused"
       }
@@ -152,6 +155,7 @@ class SeqMediaLibraryService : MediaLibraryService() {
     return super.onStartCommand(intent,flags,startId)
   }
   override fun onDestroy() {
+    if(SeqOwnedAudioSessions.setPlaying("library",false)) SeqGlobalEffect.sync(this)
     if(ownedAudioSession>0) SeqOwnedAudioSessions.remove(ownedAudioSession)
     ownedAudioSession=0
     session.release()
