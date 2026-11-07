@@ -17,32 +17,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.n2k02.seq.adb.LocalAdbDiagnostics
 import com.n2k02.seq.adb.SeqPairingAccessibilityService
-import com.n2k02.seq.audio.EngineStatus
 
-/** VRec Settings > ADB connection parity: two cards, five choices, no manual setup controls. */
 @Composable
-internal fun SeqAdbDiagnosticsScreen(
-  context: Context,
-  adb: LocalAdbDiagnostics,
-  engine: EngineStatus,
-  permissionRevision: Int,
-  showConnectionDetails: Boolean = true,
-) {
-  val pref=adb.preferences
-  var autoPair by remember { mutableStateOf(pref.autoPairCode) }
-  var watchdog by remember { mutableStateOf(pref.watchdog) }
-  var startOnBoot by remember { mutableStateOf(pref.startOnBoot) }
-  var restore by remember { mutableStateOf(pref.restoreAfterRestart) }
-  var tcp by remember { mutableStateOf(pref.tcpMode) }
-  var note by remember { mutableStateOf("") }
-  val accessibilityEnabled=remember(permissionRevision) {
-    SeqPairingAccessibilityService.isEnabled(context)
-  }
-
+internal fun SeqAdbDiagnosticsScreen(adb: LocalAdbDiagnostics) {
   // Mirror VRec's Home connection details without treating a saved
   // authorization as a currently connected shell. Diagnostics is on demand.
   val status by adb.state.collectAsState()
-  if (showConnectionDetails) AdbSettingCard("SEQ ADB Details", Icons.Rounded.Info) {
+  AdbSettingCard("SEQ ADB Details", Icons.Rounded.Info) {
     Text(
       when {
         status.busy -> "Checking local ADB…"
@@ -69,7 +50,27 @@ internal fun SeqAdbDiagnosticsScreen(
     Text(status.message,style=MaterialTheme.typography.bodySmall,
       color=MaterialTheme.colorScheme.onSurfaceVariant)
   }
+}
 
+/** VRec Settings > ADB connection parity: two cards, five choices, no manual setup controls. */
+@Composable
+internal fun SeqAdbConnectionScreen(
+  context: Context,
+  adb: LocalAdbDiagnostics,
+  permissionRevision: Int,
+) {
+  val pref=adb.preferences
+  var autoPair by remember { mutableStateOf(pref.autoPairCode) }
+  var watchdog by remember { mutableStateOf(pref.watchdog) }
+  var startOnBoot by remember { mutableStateOf(pref.startOnBoot) }
+  var restore by remember { mutableStateOf(pref.restoreAfterRestart) }
+  var tcp by remember { mutableStateOf(pref.tcpMode) }
+  var note by remember { mutableStateOf("") }
+  val accessibilityEnabled=remember(permissionRevision) {
+    SeqPairingAccessibilityService.isEnabled(context)
+  }
+
+  val status by adb.state.collectAsState()
   AdbSettingCard("Pairing & recovery") {
     AdbSettingToggle("Auto-detect pairing code",
       "Read the Android pairing dialog with Accessibility.",autoPair) {

@@ -267,23 +267,12 @@ class MainActivity : ComponentActivity() {
                   MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",
                     Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
                 }
-                Page.ADB_CONNECTION -> {
-                  SeqAdbDiagnosticsScreen(
-                    context=this@MainActivity,
-                    adb=adb,
-                    engine=status,
-                    permissionRevision=permissionRevision,
-                    showConnectionDetails=false
-                  )
-                }
-                Page.DIAGNOSTICS -> {
-                  SeqAdbDiagnosticsScreen(
-                    context=this@MainActivity,
-                    adb=adb,
-                    engine=status,
-                    permissionRevision=permissionRevision
-                  )
-                }
+                Page.ADB_CONNECTION -> SeqAdbConnectionScreen(
+                  context = this@MainActivity,
+                  adb = adb,
+                  permissionRevision = permissionRevision
+                )
+                Page.DIAGNOSTICS -> SeqAdbDiagnosticsScreen(adb)
                 Page.UPDATES -> {
                   N2K02UpdateScreen(
                     controller = SeqUpdater.controller,

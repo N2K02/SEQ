@@ -40,6 +40,21 @@ class SeqAdbUiContractTest {
    assertFalse(ui.contains("Page.LOGS"))
    assertFalse(ui.contains("Page.ABOUT"))
  }
+ @Test fun diagnosticsAndConnectionSettingsShowSeparateCards() {
+   val ui = source("MainActivity.kt")
+   val screens = source("SeqAdbDiagnosticsScreen.kt")
+   val details = screens.substringAfter("internal fun SeqAdbDiagnosticsScreen(")
+     .substringBefore("internal fun SeqAdbConnectionScreen(")
+   val controls = screens.substringAfter("internal fun SeqAdbConnectionScreen(")
+   assertTrue(ui.contains("Page.DIAGNOSTICS -> SeqAdbDiagnosticsScreen(adb)"))
+   assertTrue(ui.contains("Page.ADB_CONNECTION -> SeqAdbConnectionScreen("))
+   assertTrue(details.contains("SEQ ADB Details"))
+   assertFalse(details.contains("Pairing & recovery"))
+   assertFalse(details.contains("Connection & security"))
+   assertFalse(details.contains("SeqAdbConnectionScreen("))
+   assertTrue(controls.contains("Pairing & recovery"))
+   assertTrue(controls.contains("Connection & security"))
+ }
  @Test fun automaticAdbDefaultsMatchVrec() {
    val prefs=source("adb/SeqAdbPreferences.kt")
    assertTrue(prefs.contains("getBoolean(\"watchdog\",true)"))
