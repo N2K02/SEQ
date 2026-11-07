@@ -20,6 +20,7 @@ import com.n2k02.seq.MainActivity
 import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.EngineSettings
 import com.n2k02.seq.model.SettingsStore
+import com.n2k02.seq.model.SystemEqCurveBuilder
 
 /**
  * User-started foreground engine service.
@@ -120,7 +121,10 @@ class SeqEngineService : Service() {
     val s = settings.read()
     if (!SessionPolicy.canAttach(s, id, effects.containsKey(id))) return
     val car = SeqRoute.isCar(this, s)
-    val effect = SeqSystemEffect.open(0, id, SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb, s.manualBands)
+    val route = SeqRoute.kind(this, car)
+    val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(this))
+    val effect = SeqSystemEffect.open(0, id, SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb,
+      settings.routeBands(route) ?: s.manualBands, bassDb, s.preampDb)
     if (effect == null) {
       SeqRuntime.log("Session effect unavailable")
       report("Audio effect unavailable")
@@ -132,7 +136,10 @@ class SeqEngineService : Service() {
   }
   private fun apply(effect: SeqSystemEffect, s: EngineSettings) {
     val car = SeqRoute.isCar(this, s)
-    effect.apply(SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb, s.manualBands)
+    val route = SeqRoute.kind(this, car)
+    val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(this))
+    effect.apply(SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb,
+      settings.routeBands(route) ?: s.manualBands, bassDb, s.preampDb)
   }
   private fun detach(id: Int) {
     effects.remove(id)?.close()

@@ -115,7 +115,13 @@ class MainActivity : ComponentActivity() {
       val adaptiveOn = remember(permissionRevision) { SeqAdaptiveAnalyzer.permitted(this@MainActivity) }
       val activeRoute = SeqRoute.kind(this, carMode)
       val output = SeqRoute.describe(this, carMode)
-      val manual = settings.manualBands
+      var bindingRevision by remember { mutableIntStateOf(0) }
+      val boundBands = remember(activeRoute, bindingRevision) { store.routeBands(activeRoute) }
+      val manual = boundBands ?: settings.manualBands
+      fun bindOutput(bands: List<Float>?) {
+        store.saveRouteBands(activeRoute, bands)
+        bindingRevision++
+      }
       val mode = if (settings.profile == AudioProfile.PURE) "Pure" else if (manual != null) "Manual" else "SEQ Auto"
       val adaptiveTone by SeqAdaptiveAnalyzer.state.collectAsState()
       val tone = SeqRoute.tone(this, settings, carMode)
@@ -200,7 +206,10 @@ class MainActivity : ComponentActivity() {
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                       FilterChip(selected = mode == "SEQ Auto",
-                        onClick = { update(settings.copy(profile = AudioProfile.AUTO, manualBands = null)) },
+                        onClick = {
+                          bindOutput(null)
+                          update(settings.copy(profile = AudioProfile.AUTO, manualBands = null))
+                        },
                         label = { Text("SEQ Auto") }, modifier = Modifier.weight(1f))
                       FilterChip(selected = settings.profile == AudioProfile.PURE,
                         onClick = { update(settings.copy(profile = AudioProfile.PURE)) },
@@ -243,17 +252,35 @@ class MainActivity : ComponentActivity() {
                       Icons.Rounded.AccountTree, card = true) { openAudioPage(Page.SIGNAL_PATH) }
                   }
                 }
-                Page.EQUALIZER -> EqualizerScreen(manual ?: autoBands.map {
-                  it.coerceIn(-SystemEqCurveBuilder.MANUAL_LIMIT_DB, SystemEqCurveBuilder.MANUAL_LIMIT_DB)
-                }, mode == "Manual",
-                  onApply = { update(settings.copy(profile = AudioProfile.AUTO, manualBands = it)) },
-                  onSave = { name, bands ->
-                    store.savePreset(name, bands)
-                    presets = store.presets()
-                  })
-                Page.DEVICE_PROFILES -> DeviceProfilesScreen(activeRoute, output, mode, presets, manual.takeIf { mode == "Manual" }) {
-                  update(settings.copy(profile = AudioProfile.AUTO, manualBands = it))
+                Page.EQUALIZER -> key(activeRoute) {
+                  EqualizerScreen(manual ?: autoBands.map {
+                    it.coerceIn(-SystemEqCurveBuilder.MANUAL_LIMIT_DB, SystemEqCurveBuilder.MANUAL_LIMIT_DB)
+                  }, mode == "Manual", settings,
+                    positivePreamp = status.limiterAvailable && settings.peakGuard,
+                    compareEnabled = settings.enabled && settings.allMedia && settings.profile != AudioProfile.PURE,
+                    onCompare = { SeqGlobalEffect.compare(this@MainActivity, it) },
+                    onControls = { update(it) },
+                    onApply = { bands ->
+                      if (boundBands != null) bindOutput(bands)
+                      update(settings.copy(profile = AudioProfile.AUTO,
+                        manualBands = if (boundBands == null) bands else settings.manualBands))
+                    },
+                    onSave = { name, bands ->
+                      store.savePreset(name, bands)
+                      presets = store.presets()
+                    })
                 }
+                Page.DEVICE_PROFILES -> DeviceProfilesScreen(activeRoute, output, mode, presets,
+                  manual.takeIf { mode == "Manual" }, bound = boundBands != null,
+                  onBind = { bands ->
+                    bindOutput(bands)
+                    update(settings)
+                  },
+                  onPreset = { bands ->
+                    if (boundBands != null) bindOutput(bands)
+                    update(settings.copy(profile = AudioProfile.AUTO,
+                      manualBands = if (boundBands == null) bands else settings.manualBands))
+                  })
                 Page.SIGNAL_PATH -> SignalPathScreen(status, output, settings) {
                   update(settings.copy(peakGuard = it))
                 }
@@ -295,6 +322,10 @@ class MainActivity : ComponentActivity() {
     SeqAdaptiveAnalyzer.sync(this, SeqPlaybackMonitor.mediaActive.value)
     adb.resumed()
     SeqUpdater.onResume(this)
+  }
+  override fun onPause() {
+    SeqGlobalEffect.compare(this, false)
+    super.onPause()
   }
   override fun onDestroy() {
     adb.dispose()

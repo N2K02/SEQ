@@ -23,11 +23,12 @@ class SeqSystemEffect private constructor(
 
   companion object {
     fun open(priority: Int, session: Int, tone: Tone, peakGuard: Boolean, ceilingDb: Float,
-      manualBands: List<Float>?, onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
+      manualBands: List<Float>?, bassDb: Float, preampDb: Float,
+      onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
       val created = configure(runCatching { dynamics(priority, session) }.getOrNull(),
-        tone, peakGuard, ceilingDb, manualBands)
+        tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb)
         ?: configure(runCatching { equalizer(priority, session) }.getOrNull(),
-          tone, peakGuard, ceilingDb, manualBands)
+          tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb)
       if (created != null && onControl != null) runCatching {
         created.effect.setControlStatusListener { _, granted -> onControl(created, granted) }
       }
@@ -35,10 +36,10 @@ class SeqSystemEffect private constructor(
     }
 
     private fun configure(candidate: SeqSystemEffect?, tone: Tone, peakGuard: Boolean,
-      ceilingDb: Float, manualBands: List<Float>?): SeqSystemEffect? {
+      ceilingDb: Float, manualBands: List<Float>?, bassDb: Float, preampDb: Float): SeqSystemEffect? {
       candidate ?: return null
       val ready = runCatching {
-        candidate.apply(tone, peakGuard, ceilingDb, manualBands)
+        candidate.apply(tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb)
         candidate.enable()
       }.getOrDefault(false)
       if (ready) return candidate
@@ -63,11 +64,12 @@ class SeqSystemEffect private constructor(
   }
 
   private data class Tuning(val tone: Tone, val peakGuard: Boolean, val ceilingDb: Float,
-    val manualBands: List<Float>?)
+    val manualBands: List<Float>?, val bassDb: Float, val preampDb: Float)
   private var tuning: Tuning? = null
 
-  fun apply(tone: Tone, peakGuard: Boolean, ceilingDb: Float, manualBands: List<Float>?) {
-    val next = Tuning(if (manualBands == null) tone else Tone(), peakGuard, ceilingDb, manualBands)
+  fun apply(tone: Tone, peakGuard: Boolean, ceilingDb: Float, manualBands: List<Float>?,
+    bassDb: Float, preampDb: Float) {
+    val next = Tuning(if (manualBands == null) tone else Tone(), peakGuard, ceilingDb, manualBands, bassDb, preampDb)
     if (next == tuning) return
     program(next)
     tuning = next
@@ -78,7 +80,9 @@ class SeqSystemEffect private constructor(
   private fun program(tuning: Tuning) {
     val manual = tuning.manualBands?.let(SystemEqCurveBuilder::manual)
     dynamics?.let { dp ->
-      val curve = manual ?: SystemEqCurveBuilder.build(tuning.tone, null, limiter = tuning.peakGuard)
+      val base = manual ?: SystemEqCurveBuilder.build(tuning.tone, null, limiter = tuning.peakGuard)
+      val curve = SystemEqCurveBuilder.withOutputControls(base, tuning.bassDb, tuning.preampDb,
+        allowBoost = tuning.peakGuard)
       val eq = DynamicsProcessing.Eq(true, true, curve.bands.size)
       curve.bands.forEachIndexed { i, b ->
         eq.setBand(i, DynamicsProcessing.EqBand(true, b.cutoffHz, b.gainDb))
@@ -93,10 +97,18 @@ class SeqSystemEffect private constructor(
       val range = eq.bandLevelRange
       val centres = List(eq.numberOfBands.toInt()) { eq.getCenterFreq(it.toShort()) / 1000f }
       check(centres.isNotEmpty() && range[0] <= 0 && range[1] >= 0)
-      SystemEqCurveBuilder.oemLevels(tuning.tone, centres, range[0].toInt()..range[1].toInt(), manual)
+      val adjusted = if (tuning.bassDb != 0f || tuning.preampDb < 0f) {
+        val base = manual ?: SystemEqCurveBuilder.build(tuning.tone, null)
+        SystemEqCurveBuilder.withOutputControls(base, tuning.bassDb, tuning.preampDb, allowBoost = false)
+      } else manual
+      SystemEqCurveBuilder.oemLevels(tuning.tone, centres, range[0].toInt()..range[1].toInt(), adjusted)
         .forEachIndexed { i, level -> eq.setBandLevel(i.toShort(), level) }
     }
   }
+
+  fun bypass(): Boolean = runCatching {
+    !effect.enabled || (effect.setEnabled(false) == AudioEffect.SUCCESS && !effect.enabled)
+  }.getOrDefault(false)
 
   fun enable(): Boolean = runCatching {
     effect.enabled || (effect.setEnabled(true) == AudioEffect.SUCCESS && effect.enabled)

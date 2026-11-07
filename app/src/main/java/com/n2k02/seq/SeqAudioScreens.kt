@@ -1,6 +1,8 @@
 package com.n2k02.seq
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,6 +21,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Constraints
@@ -29,10 +32,29 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
-internal fun ResponseGraph(gains: List<Float>, description: String) {
+internal fun ResponseGraph(gains: List<Float>, description: String, onBand: ((Int, Float) -> Unit)? = null) {
+  val update by rememberUpdatedState(onBand)
+  val limit = if (onBand == null) 12f else SystemEqCurveBuilder.MANUAL_LIMIT_DB
+  val gesture = if (onBand == null) Modifier else Modifier
+    .pointerInput(gains.size) {
+      detectTapGestures { point ->
+        val index = graphBand(point.x, size.width.toFloat(), gains.size)
+        update?.invoke(index, 0f)
+      }
+    }
+    .pointerInput(gains.size) {
+      var index = 0
+      detectDragGestures(onDragStart = { point ->
+        index = graphBand(point.x, size.width.toFloat(), gains.size)
+      }) { change, _ ->
+        change.consume()
+        val gain = ((1f - 2f * change.position.y / size.height) * limit).coerceIn(-limit, limit)
+        update?.invoke(index, (gain * 2f).roundToInt() / 2f)
+      }
+    }
   val accent = MaterialTheme.colorScheme.primary
   val grid = MaterialTheme.colorScheme.outlineVariant
-  Canvas(Modifier.fillMaxWidth().height(104.dp).semantics { contentDescription = description }) {
+  Canvas(Modifier.fillMaxWidth().height(if (onBand == null) 104.dp else 132.dp).then(gesture).semantics { contentDescription = description }) {
     val middle = size.height / 2
     for (line in 0..8) {
       val x = size.width * line / 8
@@ -42,7 +64,7 @@ internal fun ResponseGraph(gains: List<Float>, description: String) {
     val curve = Path()
     gains.forEachIndexed { i, gain ->
       val x = size.width * i / (gains.size - 1)
-      val y = middle - gain.coerceIn(-12f, 12f) * middle / 12f
+      val y = middle - gain.coerceIn(-limit, limit) * middle / limit
       if (i == 0) curve.moveTo(x, y) else curve.lineTo(x, y)
     }
     val fill = Path().apply {
@@ -53,11 +75,29 @@ internal fun ResponseGraph(gains: List<Float>, description: String) {
     }
     drawPath(fill, Brush.verticalGradient(listOf(accent.copy(alpha = 0.3f), accent.copy(alpha = 0.04f))))
     drawPath(curve, accent, style = Stroke(width = 2.dp.toPx()))
+    if (onBand != null) gains.forEachIndexed { index, gain ->
+      val x = size.width * index / (gains.size - 1)
+      val y = middle - gain.coerceIn(-limit, limit) * middle / limit
+      drawCircle(accent, 4.dp.toPx(), Offset(x, y))
+    }
   }
 }
 
+private fun graphBand(x: Float, width: Float, count: Int) =
+  (x / width * (count - 1)).roundToInt().coerceIn(0, count - 1)
+
+private val factoryPresets = linkedMapOf(
+  "Flat" to List(10) { 0f },
+  "Rock" to listOf(3f, 3f, 2f, 0f, -1f, -1f, 1f, 2f, 3f, 3f),
+  "Club" to listOf(4f, 4f, 2f, 0f, -1f, 0f, 1f, 2f, 2f, 1f),
+  "Cinematic" to listOf(3f, 3f, 1f, -1f, 0f, 1f, 2f, 2f, 1f, 0f),
+  "Acoustic" to listOf(0f, 1f, 1f, 0f, 0f, 1f, 2f, 2f, 1f, 0f)
+)
+
 @Composable
 internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
+  settings: EngineSettings, positivePreamp: Boolean, compareEnabled: Boolean,
+  onCompare: (Boolean) -> Unit, onControls: (EngineSettings) -> Unit,
   onApply: (List<Float>) -> Unit, onSave: (String, List<Float>) -> Unit) {
   val compactCount = SystemEqCurveBuilder.COMPACT_BAND_COUNT
   val precisionCount = SystemEqCurveBuilder.BAND_COUNT
@@ -88,6 +128,12 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
           }
           count = choice
         }, label = { Text("$choice bands") }, modifier = Modifier.weight(1f))
+      }
+    }
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      factoryPresets.forEach { (name, gains) ->
+        val draft = SystemEqCurveBuilder.resample(gains, count)
+        FilterChip(selected = draft == bands, onClick = { updateBands(draft) }, label = { Text(name) })
       }
     }
     val compactMode = count == compactCount
@@ -123,7 +169,9 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
         }
       }
     }
-    ResponseGraph(bands, "Manual equalizer response preview")
+    ResponseGraph(bands, "Manual equalizer response. Drag to adjust or tap to reset a band.") { index, gain ->
+      updateBands(bands.toMutableList().also { it[index] = gain })
+    }
     Text("Gain in dB • OEM EQ uses its available bands.", style = MaterialTheme.typography.bodySmall)
   }
   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -133,6 +181,51 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
   }
   Button(onClick = { onApply(bands.toList()) }, enabled = !manualActive || bands != initial, modifier = Modifier.fillMaxWidth()) {
     Text(if (manualActive && bands == initial) "Manual tuning selected" else "Apply manual tuning")
+  }
+  val compare by rememberUpdatedState(onCompare)
+  var held by remember { mutableStateOf(false) }
+  DisposableEffect(Unit) { onDispose { compare(false) } }
+  if (compareEnabled) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer,
+      modifier = Modifier.fillMaxWidth().pointerInput(Unit) {
+        detectTapGestures(onPress = {
+          held = true
+          compare(true)
+          try { tryAwaitRelease() } finally {
+            held = false
+            compare(false)
+          }
+        })
+      }) {
+      Box(Modifier.fillMaxWidth().padding(14.dp), contentAlignment = Alignment.Center) {
+        Text(if (held) "A/B • SEQ bypassed" else "Hold for A/B comparison")
+      }
+    }
+  }
+  AudioCard {
+    OutputSlider("Bass Boost", settings.bassBoost, 0f..1f, { "${(it * 100).roundToInt()}%" }) {
+      onControls(settings.copy(bassBoost = it))
+    }
+    OutputSlider("Preamp", settings.preampDb.coerceAtMost(if (positivePreamp) 6f else 0f),
+      -12f..(if (positivePreamp) 6f else 0f), { String.format(Locale.ROOT, "%+.1f dB", it) }) {
+      onControls(settings.copy(preampDb = it))
+    }
+    if (!positivePreamp) Text("Positive gain requires an active peak limiter.",
+      style = MaterialTheme.typography.bodySmall)
+  }
+  AudioCard {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+        Text("Smart Dynamic Bass", style = MaterialTheme.typography.titleMedium)
+        Text("Adds bass at lower volumes", style = MaterialTheme.typography.bodySmall)
+      }
+      Switch(checked = settings.dynamicBass, onCheckedChange = { onControls(settings.copy(dynamicBass = it)) })
+    }
+    if (settings.dynamicBass) {
+      OutputSlider("Intensity", settings.bassIntensity, 0f..1f, { "${(it * 100).roundToInt()}%" }) {
+        onControls(settings.copy(bassIntensity = it))
+      }
+    }
   }
   if (showSave) AlertDialog(
     onDismissRequest = { showSave = false },
@@ -151,8 +244,19 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
 }
 
 @Composable
+private fun OutputSlider(title: String, value: Float, range: ClosedFloatingPointRange<Float>,
+  format: (Float) -> String, onApply: (Float) -> Unit) {
+  var draft by remember(value) { mutableFloatStateOf(value) }
+  Text("$title • ${format(draft)}", style = MaterialTheme.typography.titleMedium)
+  Slider(value = draft, onValueChange = { draft = it }, valueRange = range,
+    onValueChangeFinished = { onApply(draft) },
+    modifier = Modifier.semantics { contentDescription = title })
+}
+
+@Composable
 internal fun DeviceProfilesScreen(active: RouteKind, output: String, mode: String,
-  presets: Map<String, List<Float>>, selectedPreset: List<Float>?, onPreset: (List<Float>) -> Unit) {
+  presets: Map<String, List<Float>>, selectedPreset: List<Float>?, bound: Boolean,
+  onBind: (List<Float>?) -> Unit, onPreset: (List<Float>) -> Unit) {
   RouteKind.entries.forEach { route ->
     val selected = route == active
     Surface(shape = MaterialTheme.shapes.large,
@@ -171,6 +275,14 @@ internal fun DeviceProfilesScreen(active: RouteKind, output: String, mode: Strin
   }
   AudioCard {
     Text("Saved presets", style = MaterialTheme.typography.titleMedium)
+    if (selectedPreset != null || bound) {
+      Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (selectedPreset != null && !bound) TextButton(onClick = { onBind(selectedPreset) }) {
+          Text("Remember for this output")
+        }
+        if (bound) TextButton(onClick = { onBind(null) }) { Text("Clear output preset") }
+      }
+    }
     if (presets.isEmpty()) Text("Save a preset from Equalizer to use it here.", style = MaterialTheme.typography.bodySmall)
     presets.forEach { (name, bands) ->
       FilledTonalButton(onClick = { onPreset(bands) }, modifier = Modifier.fillMaxWidth()) {

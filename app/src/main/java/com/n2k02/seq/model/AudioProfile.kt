@@ -6,7 +6,6 @@ enum class AudioProfile(val title: String, val subtitle: String) {
 }
 data class Tone(val bass: Float = 0f, val mid: Float = 0f, val treble: Float = 0f)
 
-/** Only what the automatic engine needs; there is no manual tuning to manage. */
 data class EngineSettings(
   val enabled: Boolean = false,
   val profile: AudioProfile = AudioProfile.AUTO,
@@ -17,7 +16,11 @@ data class EngineSettings(
   val peakCeilingDb: Float = -1.0f,
   val allMedia: Boolean = true,
   val loudness: Boolean = true,
-  val manualBands: List<Float>? = null
+  val manualBands: List<Float>? = null,
+  val bassBoost: Float = 0f,
+  val preampDb: Float = 0f,
+  val dynamicBass: Boolean = false,
+  val bassIntensity: Float = 0.35f
 )
 
 /**

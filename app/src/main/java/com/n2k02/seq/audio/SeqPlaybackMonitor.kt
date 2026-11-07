@@ -55,7 +55,8 @@ object SeqPlaybackMonitor {
       if (intent.action == VOLUME_CHANGED) {
         // Loudness compensation follows media volume; ignore other streams.
         if (intent.getIntExtra(EXTRA_STREAM, -1) != AudioManager.STREAM_MUSIC) return
-        if (!SettingsStore(context).read().loudness) return
+        val settings = SettingsStore(context).read()
+        if (!settings.loudness && !settings.dynamicBass && settings.bassBoost == 0f) return
         main.removeCallbacks(volumeSync)
         main.postDelayed(volumeSync, 150)
         return

@@ -92,4 +92,21 @@ class SystemEqCurveTest {
     val p = HeadphoneProfile("x", -7.0, listOf(EqFilter(FilterKind.PEAK, 1000.0, 3.0, 1.0)))
     assertEquals(-7f, SystemEqCurveBuilder.build(Tone(), p).inputGainDb, 0.01f)
   }
+  @Test fun outputPreampRequiresLimiterForPositiveGain() {
+    val curve = SystemEqCurveBuilder.manual(List(10) { 0f })
+    assertEquals(0f, SystemEqCurveBuilder.withOutputControls(curve, 0f, 6f, false).inputGainDb, 0f)
+    assertEquals(6f, SystemEqCurveBuilder.withOutputControls(curve, 0f, 6f, true).inputGainDb, 0f)
+    assertEquals(-5f, SystemEqCurveBuilder.withOutputControls(curve, 0f, -5f, false).inputGainDb, 0f)
+  }
+
+  @Test fun bassAdjustmentKeepsHeadroomAndTapersOnPhoneSpeaker() {
+    val settings = EngineSettings(bassBoost = 1f, dynamicBass = true, bassIntensity = 1f)
+    assertEquals(5f, SystemEqCurveBuilder.bassGain(settings, RouteKind.SPEAKER, 0f), 0f)
+    assertEquals(0f, SystemEqCurveBuilder.bassGain(settings, RouteKind.SPEAKER, 1f), 0f)
+    assertEquals(6f, SystemEqCurveBuilder.bassGain(settings, RouteKind.WIRED, 1f), 0f)
+    val curve = SystemEqCurveBuilder.manual(List(10) { 2f })
+    val boosted = SystemEqCurveBuilder.withOutputControls(curve, 5f, 0f, false)
+    assertTrue(boosted.bands.first().gainDb > boosted.bands.last().gainDb)
+    assertTrue(boosted.bands.all { it.gainDb + boosted.inputGainDb <= 0f })
+  }
 }

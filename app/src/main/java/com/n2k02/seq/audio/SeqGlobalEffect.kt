@@ -2,6 +2,7 @@ package com.n2k02.seq.audio
 
 import android.content.Context
 import com.n2k02.seq.model.SettingsStore
+import com.n2k02.seq.model.SystemEqCurveBuilder
 
 /**
  * Output-mix (session 0) effect for media routed through a compatible Android mixer.
@@ -16,10 +17,19 @@ object SeqGlobalEffect {
   private var effect: SeqSystemEffect? = null
   private var app: Context? = null
 
+  private var comparing = false
+
+  @Synchronized fun compare(context: Context, held: Boolean) {
+    if (held == comparing) return
+    comparing = held
+    sync(context)
+  }
+
   @Synchronized fun sync(context: Context) {
     val ctx = context.applicationContext
     app = ctx
-    val s = SettingsStore(ctx).read()
+    val store = SettingsStore(ctx)
+    val s = store.read()
     if (!SessionPolicy.shouldProcessAllMedia(s)) {
       val reason = if (!s.enabled || !s.allMedia) null else "Pure bypass"
       release(reason)
@@ -27,9 +37,16 @@ object SeqGlobalEffect {
     }
     try {
       val car = SeqRoute.isCar(ctx, s)
+      if (comparing && effect?.bypass() != false) {
+        publish(false, "", "A/B comparison • bypass", car, SeqRoute.describe(ctx, car))
+        return
+      }
+      val route = SeqRoute.kind(ctx, car)
+      val bands = store.routeBands(route) ?: s.manualBands
+      val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(ctx))
       val tone = SeqRoute.tone(ctx, s, car)
       val current = effect ?: SeqSystemEffect.open(PRIORITY, OUTPUT_MIX, tone, s.peakGuard,
-        s.peakCeilingDb, s.manualBands, ::onControl)?.also {
+        s.peakCeilingDb, bands, bassDb, s.preampDb, ::onControl)?.also {
         effect = it
         SeqRuntime.log("Output mix effect attached (" + it.engine + ")")
       }
@@ -41,7 +58,7 @@ object SeqGlobalEffect {
         publish(false, "", "Another audio effect app has control", car, SeqRoute.describe(ctx, car))
         return
       }
-      current.apply(tone, s.peakGuard, s.peakCeilingDb, s.manualBands)
+      current.apply(tone, s.peakGuard, s.peakCeilingDb, bands, bassDb, s.preampDb)
       if (!current.enable()) {
         release("Output mix effect could not be enabled")
         return

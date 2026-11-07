@@ -92,6 +92,23 @@ object SystemEqCurveBuilder {
     return SystemEqCurve(-gains.max().coerceAtLeast(0f) + 0f, bands)
   }
 
+  fun withOutputControls(curve: SystemEqCurve, bassDb: Float, preampDb: Float,
+    allowBoost: Boolean): SystemEqCurve {
+    if (bassDb == 0f && preampDb == 0f) return curve
+    val shelf = EqFilter(FilterKind.LOW_SHELF, 110.0, bassDb.toDouble(), 0.7071)
+    val bands = curve.bands.mapIndexed { i, band ->
+      band.copy(gainDb = band.gainDb + EqResponse.db(precisionCentres[i], shelf).toFloat())
+    }
+    val headroom = minOf(curve.inputGainDb, -bands.maxOf { it.gainDb }.coerceAtLeast(0f))
+    return SystemEqCurve(headroom + if (allowBoost) preampDb else preampDb.coerceAtMost(0f), bands)
+  }
+
+  fun bassGain(s: EngineSettings, route: RouteKind, volume: Float): Float {
+    val remaining = 1f - volume.coerceIn(0f, 1f)
+    val fixed = if (route == RouteKind.SPEAKER) 2f * remaining else 6f
+    return s.bassBoost * fixed + if (s.dynamicBass) s.bassIntensity * 3f * remaining else 0f
+  }
+
   /**
    * OEM Equalizer has no separate input gain or limiter. Shift its entire curve down and
    * retain cuts where the hardware range allows. The programmed bands never add gain.
