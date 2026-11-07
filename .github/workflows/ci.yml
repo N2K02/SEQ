@@ -1,0 +1,317 @@
+name: SEQ Build APK (mRadio parity)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable version, one decimal (e.g. 1.0). Leave empty to increment 0.1.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seq-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP: SEQ
+
+jobs:
+  android:
+    name: Android unit tests, lint and R8 validation
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      N2K02_PACKAGES_USER: N2K02
+      N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN }}
+    outputs:
+      channel: ${{ steps.version.outputs.SEQ_CHANNEL }}
+      version: ${{ steps.version.outputs.SEQ_VERSION }}
+      version_code: ${{ steps.version.outputs.SEQ_VERSION_CODE }}
+      tag: ${{ steps.version.outputs.SEQ_TAG }}
+      apk_name: ${{ steps.version.outputs.SEQ_APK_NAME }}
+      build_variant: ${{ steps.version.outputs.SEQ_BUILD_VARIANT }}
+      input_apk: ${{ steps.version.outputs.SEQ_INPUT_APK }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install SDK and build tools
+        run: |
+          sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
+          if [ -d "$ANDROID_HOME/platforms/android-37.0" ] && [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
+            ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
+          fi
+      - name: Test mRadio-style public version resolver
+        run: bash .github/scripts/test-public-version.sh
+      - name: Resolve stable and experimental release channels
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHANNEL=stable
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then CHANNEL=experimental; fi
+          # Same as mRadio: use all public tags, not the first page of releases.
+          PUBLIC="$(bash .github/scripts/latest-public-version.sh seq)"
+          LOCAL="$(git tag -l 'v[0-9]*' | sed -nE 's/^v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)"
+          BASE="0.3"
+          LAST="$(printf '%s\n%s\n%s\n' "$BASE" "${PUBLIC#v}" "$LOCAL" | grep -E '^[0-9]+[.][0-9]$' | sort -V | tail -1)"
+          python3 scripts/release_policy.py --channel "$CHANNEL" \
+            --previous "$LAST" --requested "${REQUESTED_VERSION:-}" \
+            --run "$GITHUB_RUN_NUMBER" --pr "${PR_NUMBER:-1}" \
+            --sha "${HEAD_SHA:-$GITHUB_SHA}" > "$RUNNER_TEMP/seq-version.env"
+          cat "$RUNNER_TEMP/seq-version.env" >> "$GITHUB_ENV"
+          cat "$RUNNER_TEMP/seq-version.env" >> "$GITHUB_OUTPUT"
+          echo "SEQ $CHANNEL from last stable $LAST; version $(grep SEQ_VERSION= "$RUNNER_TEMP/seq-version.env")"
+      - name: Verify private shared-library credentials
+        run: |
+          test -n "$N2K02_PACKAGES_TOKEN" || {
+            echo "::error::N2K02_PACKAGES_TOKEN is missing for n2k02theme/n2k02updater"
+            exit 1
+          }
+      - name: Test version and update policy
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          bash -n .github/scripts/latest-public-version.sh
+          bash -n .github/scripts/publish-distribution.sh
+          bash -n .github/scripts/test-public-version.sh
+      - name: Build selected APK, Android tests, lint and R8 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          gradle --no-daemon :app:testDebugUnitTest :app:lintDebug \
+            :app:assembleDebug :app:assembleRelease \
+            -PseqVersion="$SEQ_VERSION" -PseqChannel="$SEQ_CHANNEL" \
+            -PseqBuild="$GITHUB_RUN_NUMBER" 2>&1 | tee build.log || {
+              echo "::group::All Android lint findings"
+              if [ -f app/build/reports/lint-results-debug.txt ]; then
+                cat app/build/reports/lint-results-debug.txt
+              fi
+              echo "::endgroup::"
+              exit 1
+            }
+          test -s "$SEQ_INPUT_APK"
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s app/build/outputs/mapping/release/mapping.txt
+          echo "Selected $SEQ_BUILD_VARIANT APK and R8 shrinking both verified"
+      - name: Upload Android lint reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SEQ-lint-diagnostics
+          path: |
+            app/build/reports/lint-results-debug.*
+            app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+            build.log
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SEQ-validated-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Sign and publish stable or experimental (shared mRadio key)
+    needs: [android]
+    if: >-
+      (github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository) &&
+      needs.android.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: seq-serialized-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
+      VERSION: ${{ needs.android.outputs.version }}
+      VERSION_CODE: ${{ needs.android.outputs.version_code }}
+      APK_NAME: ${{ needs.android.outputs.apk_name }}
+      CHANNEL: ${{ needs.android.outputs.channel }}
+      RELEASE_TAG: ${{ needs.android.outputs.tag }}
+      APK_INPUT: ${{ needs.android.outputs.input_apk }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+      - name: Install signing tools
+        run: sdkmanager --install "build-tools;36.0.0"
+      - name: Verify archive exactly matches mRadio encrypted signing bundle
+        run: |
+          test "$(git hash-object signing/keys.tar.enc)" = "5203c1095062ad22099f76d319605ae5b79c0720" || {
+            echo "::error::Shared mRadio signing archive hash mismatch";exit 1;
+          }
+      - name: Guard superseded PR/main commits and signing requirements
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            EXPECTED="$PR_HEAD_SHA"
+            CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
+          else
+            EXPECTED="$GITHUB_SHA"
+            CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)"
+          fi
+          if [ "$CURRENT" != "$EXPECTED" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping superseded commit $EXPECTED"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          test -s signing/keys.tar.enc || {
+            echo "::error::Shared mRadio signing archive missing"; exit 1;
+          }
+          if [ -z "$SIGNING_PASSPHRASE" ]; then
+            echo "::error::Add the SAME SIGNING_PASSPHRASE secret used by mRadio to SEQ repository Actions secrets."
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.gate.outputs.skip == 'false'
+        with:
+          name: SEQ-validated-apks
+          path: ${{ runner.temp }}/verified
+      - name: Sign with existing mRadio/VRec keys and rotation lineage
+        if: steps.gate.outputs.skip == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          KEYS="$RUNNER_TEMP/shared-signing"
+          mkdir -p "$KEYS"
+          trap 'rm -rf "$KEYS"' EXIT
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+            -in signing/keys.tar.enc -pass env:SIGNING_PASSPHRASE |
+            tar -xf - -C "$KEYS"
+          test -s "$KEYS/old.keystore"
+          test -s "$KEYS/release.p12"
+          test -s "$KEYS/release.pass"
+          export RP="$(cat "$KEYS/release.pass")"
+          export OP=android
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          "$BT/apksigner" rotate --out "$KEYS/lineage" \
+            --old-signer --ks "$KEYS/old.keystore" \
+              --ks-pass env:OP --ks-key-alias androiddebugkey --key-pass env:OP \
+            --new-signer --ks "$KEYS/release.p12" \
+              --ks-pass env:RP --ks-key-alias release --key-pass env:RP
+          # Both SEQ and mRadio use the exact same old/new signer lineage.
+          "$BT/apksigner" sign \
+            --ks "$KEYS/old.keystore" --ks-pass env:OP \
+            --ks-key-alias androiddebugkey --key-pass env:OP \
+            --next-signer --ks "$KEYS/release.p12" --ks-pass env:RP \
+              --ks-key-alias release --key-pass env:RP \
+            --lineage "$KEYS/lineage" --rotation-min-sdk-version 28 \
+            --out "$APK_NAME" "$RUNNER_TEMP/verified/$(dirname "$APK_INPUT" | sed 's|.*/apk/||')/$(basename "$APK_INPUT")"
+          "$BT/apksigner" verify --verbose --print-certs "$APK_NAME"
+          test -s "$APK_NAME"
+          echo "APK_SHA256=$(sha256sum "$APK_NAME" | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "APK_SIZE=$(stat -c%s "$APK_NAME")" >> "$GITHUB_ENV"
+          # Redact both passphrases from the remainder of the job.
+          unset RP OP
+      - name: Upload signed APK (always preserve release artifact)
+        if: steps.gate.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.android.outputs.apk_name }}
+          path: ${{ needs.android.outputs.apk_name }}
+          if-no-files-found: error
+      - name: Publish signed APK in SEQ GitHub Releases
+        if: steps.gate.outputs.skip == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$CHANNEL" = "experimental" ]; then
+            CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
+            test "$CURRENT" = "$PR_HEAD_SHA" || {
+              echo "::notice::PR changed during build; not publishing older APK";exit 0;
+            }
+            TARGET="$PR_HEAD_SHA"
+            TITLE="SEQ experimental · PR #$PR_NUMBER · build #$GITHUB_RUN_NUMBER"
+            EXTRA=(--prerelease --latest=false)
+          else
+            CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)"
+            test "$CURRENT" = "$GITHUB_SHA" || {
+              echo "::notice::main changed during build; not publishing older APK";exit 0;
+            }
+            TARGET="$GITHUB_SHA"
+            TITLE="SEQ $VERSION"
+            EXTRA=(--latest)
+          fi
+          git log -30 --no-merges --pretty='- %s' > "$RUNNER_TEMP/changes.txt"
+          {
+            echo "## SEQ $VERSION ($CHANNEL)"
+            echo "Version code: $VERSION_CODE"
+            echo
+            echo "### What's new"
+            head -30 "$RUNNER_TEMP/changes.txt"
+            echo
+            echo "Signed with the shared mRadio/VRec old/new APK key lineage."
+            echo "Android Auto and audio fidelity require device verification."
+          } > release-notes.md
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ "$CHANNEL" = "stable" ]; then
+              echo "::error::Stable tag already exists; use a higher stable version"; exit 1
+            fi
+            gh release upload "$RELEASE_TAG" "$APK_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$APK_NAME" --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET" --title "$TITLE" \
+              --notes-file release-notes.md "${EXTRA[@]}"
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | grep -Fxq "$APK_NAME"
+      - name: Check public distribution configuration
+        if: steps.gate.outputs.skip == 'false'
+        id: distribution
+        env:
+          DIST_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
+        run: |
+          if [ -n "$DIST_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::ANDROID_DISTRIBUTION_TOKEN is missing. Signed APK is on SEQ GitHub Releases but stable/experimental public update feeds cannot advance."
+          fi
+      - name: Publish mRadio-compatible public updater manifest
+        if: steps.gate.outputs.skip == 'false' && steps.distribution.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
+        run: bash .github/scripts/publish-distribution.sh

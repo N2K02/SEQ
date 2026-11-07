@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+ <string name="seq_accessibility_label">SEQ automatic ADB pairing</string>
+ <string name="seq_accessibility_description">Reads the temporary six-digit code from the Android Settings Wireless debugging pairing dialog to pair SEQ automatically. Does not inspect other applications or perform UI actions.</string>
+</resources>
