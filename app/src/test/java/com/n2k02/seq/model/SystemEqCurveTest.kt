@@ -59,6 +59,26 @@ class SystemEqCurveTest {
       SystemEqCurveBuilder.oemLevels(Tone(), listOf(20f, 1000f), -1500..1500, curve))
   }
 
+  @Test fun compactPresetUsesTheTenOctaveCentresAndRoundTrips() {
+    val expected = listOf(31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0)
+    assertEquals(expected, SystemEqCurveBuilder.centres(10))
+    val gains = List(10) { it - 4f }
+    assertEquals(gains, SystemEqCurveBuilder.parseManual(gains.joinToString(",")))
+    val curve = SystemEqCurveBuilder.manual(gains)
+    assertEquals(31, curve.bands.size)
+    assertEquals(-5f, curve.inputGainDb, 0f)
+    assertEquals(-4f, curve.bands.first().gainDb, 0f)
+    assertEquals(5f, curve.bands.last().gainDb, 0f)
+    assertTrue(curve.bands.zipWithNext().all { (a, b) -> a.gainDb <= b.gainDb })
+  }
+
+  @Test fun convertingBetweenLayoutsPreservesAFlatPreset() {
+    val gains = List(31) { 2.5f }
+    val compact = SystemEqCurveBuilder.resample(gains, 10)
+    assertEquals(List(10) { 2.5f }, compact)
+    assertEquals(gains, SystemEqCurveBuilder.resample(compact, 31))
+  }
+
   @Test fun invalidStoredManualCurvesFallBackToAuto() {
     assertNull(SystemEqCurveBuilder.parseManual(null))
     assertNull(SystemEqCurveBuilder.parseManual("0,0"))

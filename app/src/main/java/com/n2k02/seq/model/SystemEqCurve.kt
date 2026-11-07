@@ -1,6 +1,7 @@
 package com.n2k02.seq.model
 
 import kotlin.math.roundToInt
+import kotlin.math.ln
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -45,17 +46,49 @@ object SystemEqCurveBuilder {
   }
   const val MANUAL_LIMIT_DB = 6f
 
+  const val COMPACT_BAND_COUNT = 10
+  private val compactCentres = listOf(31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
+    .map(Int::toDouble)
+  private val precisionCentres = List(BAND_COUNT) { i ->
+    val lower = if (i == 0) LOW_HZ else cutoffHz(i - 1)
+    sqrt(lower * cutoffHz(i))
+  }
+
+  fun centres(count: Int): List<Double> = when (count) {
+    COMPACT_BAND_COUNT -> compactCentres
+    BAND_COUNT -> precisionCentres
+    else -> error("Unsupported manual EQ band count")
+  }
+
+  /** Interpolate dB gain on a logarithmic frequency axis, holding the end bands flat. */
+  fun resample(gains: List<Float>, count: Int): List<Float> {
+    val source = centres(gains.size)
+    if (gains.size == count) return gains
+    return centres(count).map { hz ->
+      val upper = source.indexOfFirst { it >= hz }
+      when (upper) {
+        -1 -> gains.last()
+        0 -> gains.first()
+        else -> {
+          val lower = source[upper - 1]
+          val fraction = ln(hz / lower) / ln(source[upper] / lower)
+          (gains[upper - 1] + (gains[upper] - gains[upper - 1]) * fraction).toFloat()
+        }
+      }
+    }
+  }
+
   fun parseManual(text: String?): List<Float>? {
     if (text == null) return null
     val bands = text.split(',')
-    if (bands.size != BAND_COUNT) return null
+    if (bands.size != BAND_COUNT && bands.size != COMPACT_BAND_COUNT) return null
     val gains = bands.map { it.toFloatOrNull() ?: return null }
     return gains.takeIf { it.all { gain -> gain in -MANUAL_LIMIT_DB..MANUAL_LIMIT_DB } }
   }
 
   fun manual(gains: List<Float>): SystemEqCurve {
-    require(gains.size == BAND_COUNT && gains.all { it in -MANUAL_LIMIT_DB..MANUAL_LIMIT_DB })
-    val bands = gains.mapIndexed { i, gain -> SystemEqBand(cutoffHz(i).toFloat(), gain) }
+    require(gains.all { it in -MANUAL_LIMIT_DB..MANUAL_LIMIT_DB })
+    val bands = resample(gains, BAND_COUNT).mapIndexed { i, gain -> SystemEqBand(cutoffHz(i).toFloat(), gain) }
     return SystemEqCurve(-gains.max().coerceAtLeast(0f) + 0f, bands)
   }
 

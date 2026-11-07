@@ -27,7 +27,6 @@ import com.n2k02.seq.audio.EngineStatus
 import com.n2k02.seq.model.*
 import java.util.Locale
 import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
 @Composable
 internal fun ResponseGraph(gains: List<Float>, description: String) {
@@ -60,24 +59,57 @@ internal fun ResponseGraph(gains: List<Float>, description: String) {
 @Composable
 internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
   onApply: (List<Float>) -> Unit, onSave: (String, List<Float>) -> Unit) {
-  var bands by rememberSaveable { mutableStateOf(ArrayList(initial)) }
+  val compactCount = SystemEqCurveBuilder.COMPACT_BAND_COUNT
+  val precisionCount = SystemEqCurveBuilder.BAND_COUNT
+  var count by rememberSaveable { mutableIntStateOf(initial.size) }
+  var compact by rememberSaveable {
+    mutableStateOf(if (initial.size == compactCount) ArrayList(initial) else null)
+  }
+  var precision by rememberSaveable {
+    mutableStateOf(if (initial.size == precisionCount) ArrayList(initial) else null)
+  }
+  val bands = if (count == compactCount) checkNotNull(compact) else checkNotNull(precision)
+  fun updateBands(next: List<Float>) {
+    if (count == compactCount) compact = ArrayList(next) else precision = ArrayList(next)
+  }
   var showSave by rememberSaveable { mutableStateOf(false) }
   var name by rememberSaveable { mutableStateOf("") }
   val limit = SystemEqCurveBuilder.MANUAL_LIMIT_DB
   AudioCard {
-    Text("31-band EQ", style = MaterialTheme.typography.titleLarge)
-    Text("Manual tuning • Swipe for more bands", style = MaterialTheme.typography.bodySmall)
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+    Text("Equalizer bands", style = MaterialTheme.typography.titleLarge)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      listOf(compactCount, precisionCount).forEach { choice ->
+        FilterChip(selected = count == choice, onClick = {
+          if (choice == compactCount && compact == null) {
+            compact = ArrayList(SystemEqCurveBuilder.resample(bands, compactCount))
+          }
+          if (choice == precisionCount && precision == null) {
+            precision = ArrayList(SystemEqCurveBuilder.resample(bands, precisionCount))
+          }
+          count = choice
+        }, label = { Text("$choice bands") }, modifier = Modifier.weight(1f))
+      }
+    }
+    val compactMode = count == compactCount
+    val scrollState = rememberScrollState()
+    val scroll = if (compactMode) Modifier else Modifier.horizontalScroll(scrollState)
+    Text(if (compactMode) "Manual tuning" else "Manual tuning • Swipe for more bands",
+      style = MaterialTheme.typography.bodySmall)
+    val centres = SystemEqCurveBuilder.centres(count)
+    Row(Modifier.fillMaxWidth().then(scroll)) {
       bands.forEachIndexed { i, gain ->
-        val low = if (i == 0) 20.0 else SystemEqCurveBuilder.cutoffHz(i - 1)
-        val centre = sqrt(low * SystemEqCurveBuilder.cutoffHz(i))
-        val label = if (centre < 1000) "${centre.roundToInt()}"
-          else String.format(Locale.ROOT, "%.1fk", centre / 1000)
-        Column(Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        val centre = centres[i]
+        val label = when {
+          centre < 1000 -> centre.roundToInt().toString()
+          compactMode -> "${(centre / 1000).roundToInt()}k"
+          else -> String.format(Locale.ROOT, "%.1fk", centre / 1000)
+        }
+        val column = if (compactMode) Modifier.weight(1f) else Modifier.width(52.dp)
+        Column(column, horizontalAlignment = Alignment.CenterHorizontally) {
           Slider(value = gain, onValueChange = { level ->
-            bands = ArrayList(bands).also { it[i] = (level * 2).roundToInt() / 2f }
+            updateBands(bands.toMutableList().also { it[i] = (level * 2).roundToInt() / 2f })
           }, valueRange = -limit..limit, modifier = Modifier.width(48.dp).height(140.dp)
-            .semantics { contentDescription = "$label Hz gain" }
+            .semantics { contentDescription = "${centre.roundToInt()} Hz gain" }
             .graphicsLayer { rotationZ = -90f }
             .layout { measurable, constraints ->
               val placeable = measurable.measure(Constraints.fixed(constraints.maxHeight, constraints.maxWidth))
@@ -87,7 +119,7 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
               }
             })
           Text(label, style = MaterialTheme.typography.labelSmall)
-          Text(String.format(Locale.ROOT, "%+.1f", gain), style = MaterialTheme.typography.labelSmall)
+          Text(String.format(Locale.ROOT, "%+.1f", gain), style = MaterialTheme.typography.labelSmall, maxLines = 1)
         }
       }
     }
@@ -95,7 +127,7 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
     Text("Gain in dB • OEM EQ uses its available bands.", style = MaterialTheme.typography.bodySmall)
   }
   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-    OutlinedButton(onClick = { bands = ArrayList(List(bands.size) { 0f }) },
+    OutlinedButton(onClick = { updateBands(List(bands.size) { 0f }) },
       modifier = Modifier.weight(1f)) { Text("Reset") }
     FilledTonalButton(onClick = { showSave = true }, modifier = Modifier.weight(1.4f)) { Text("Save preset") }
   }
@@ -144,7 +176,7 @@ internal fun DeviceProfilesScreen(active: RouteKind, output: String, mode: Strin
       FilledTonalButton(onClick = { onPreset(bands) }, modifier = Modifier.fillMaxWidth()) {
         Icon(if (bands == selectedPreset) Icons.Rounded.Check else Icons.Rounded.BookmarkBorder, null)
         Spacer(Modifier.width(8.dp))
-        Text(name)
+        Text("$name • ${bands.size} bands")
       }
     }
   }

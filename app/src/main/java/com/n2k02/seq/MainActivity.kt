@@ -258,7 +258,7 @@ class MainActivity : ComponentActivity() {
                   update(settings.copy(peakGuard = it))
                 }
                 Page.SETTINGS -> {
-                  MenuRow("Equalizer", "31-band manual tuning", Icons.Rounded.Equalizer) { openAudioPage(Page.EQUALIZER) }
+                  MenuRow("Equalizer", "10- or 31-band manual tuning", Icons.Rounded.Equalizer) { openAudioPage(Page.EQUALIZER) }
                   MenuRow("Device profiles", "Output details and saved presets", Icons.Rounded.Headphones) { openAudioPage(Page.DEVICE_PROFILES) }
                   MenuRow("Signal path", "Processing stages and peak limiter", Icons.Rounded.AccountTree) { openAudioPage(Page.SIGNAL_PATH) }
                   MenuRow("ADB connection", "Pairing, recovery and TCP/5555", Icons.Rounded.SettingsInputAntenna) { page = Page.ADB_CONNECTION }
