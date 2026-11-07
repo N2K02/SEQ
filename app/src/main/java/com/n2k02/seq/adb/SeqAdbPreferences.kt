@@ -57,6 +57,14 @@ class SeqAdbPreferences(context: Context) {
       prefs.getInt("tls_boot",-1),boot()
     )
   fun markPaired(){ prefs.edit().putBoolean("paired",true).apply() }
+  /** Authorization is not evidence of a particular TLS/TCP transport. */
+  fun markAuthorized() {
+    prefs.edit().putBoolean("previously_authorized", true)
+      .putInt("verified_boot", boot()).apply()
+  }
+  fun setVerifiedAt(timeMs:Long) {
+    prefs.edit().putLong("verified_at", timeMs).apply()
+  }
   val wasPaired:Boolean get()=prefs.getBoolean("paired",false)
   fun markVerified(port:Int, verifiedPort:Int=port) {
     if(port !in 1..65535 || verifiedPort !in 1..65535) return
