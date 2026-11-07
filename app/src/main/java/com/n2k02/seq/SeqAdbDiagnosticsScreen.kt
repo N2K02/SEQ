@@ -34,6 +34,7 @@ internal fun SeqAdbDiagnosticsScreen(
   var startOnBoot by remember { mutableStateOf(pref.startOnBoot) }
   var restore by remember { mutableStateOf(pref.restoreAfterRestart) }
   var tcp by remember { mutableStateOf(pref.tcpMode) }
+  var note by remember { mutableStateOf("") }
   val accessibilityEnabled=remember(permissionRevision) {
     SeqPairingAccessibilityService.isEnabled(context)
   }
@@ -100,12 +101,26 @@ internal fun SeqAdbDiagnosticsScreen(
       "Restore Wireless debugging after reboot, using saved pairing. Requires Android permission; never overrides a manual off setting.",restore) {
       restore=it
       adb.setRestoreAfterRestart(it)
+      note = if (it) "Restore after restart enabled; Android permission may be required."
+        else "Restore after restart disabled; permission revocation requested when authorized."
     }
     AdbSettingToggle("Keep ADB without Wi-Fi (TCP/5555)",
       "Keeps ADB available without Wi-Fi. TCP/5555 may be reachable by devices on your network.",tcp) {
       tcp=it
       adb.setTcpMode(it)
+      note = if (it) "TCP/5555 enabled for the next verified connection."
+        else "TCP/5555 shutdown requested; check connection status for confirmation."
     }
+    if (status.connected && status.uidVerified && status.lastVerifiedPort == 5555) {
+      OutlinedButton(onClick = {
+        adb.disconnectTcp()
+        note = "Requested TCP/5555 shutdown; check connection status for confirmation."
+      }, enabled = !status.busy, modifier = Modifier.fillMaxWidth()) {
+        Text("Disable TCP/5555")
+      }
+    }
+    if (note.isNotBlank()) Text(note, style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant)
   }
 }
 
