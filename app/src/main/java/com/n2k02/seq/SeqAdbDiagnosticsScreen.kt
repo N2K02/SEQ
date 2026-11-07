@@ -69,7 +69,7 @@ internal fun SeqAdbDiagnosticsScreen(
       color=MaterialTheme.colorScheme.onSurfaceVariant)
   }
 
-  AdbSettingCard("Pairing & recovery",Icons.Rounded.SettingsInputAntenna) {
+  AdbSettingCard("Pairing & recovery") {
     AdbSettingToggle("Auto-detect pairing code",
       "Read the Android pairing dialog with Accessibility.",autoPair) {
       autoPair=it
@@ -90,19 +90,19 @@ internal fun SeqAdbDiagnosticsScreen(
       adb.setWatchdog(it)
     }
     AdbSettingToggle("Start on boot",
-      "Try to restore after restarting and unlocking.",startOnBoot) {
+      "Try to restore the helper after restarting and unlocking.",startOnBoot) {
       startOnBoot=it
       adb.setStartOnBoot(it)
     }
   }
-  AdbSettingCard("Connection & security",Icons.Rounded.Shield) {
+  AdbSettingCard("Connection & security") {
     AdbSettingToggle("Restore after restart",
-      "Restore Wireless debugging after reboot using saved pairing. Requires Android permission.",restore) {
+      "Restore Wireless debugging after reboot, using saved pairing. Requires Android permission; never overrides a manual off setting.",restore) {
       restore=it
       adb.setRestoreAfterRestart(it)
     }
     AdbSettingToggle("Keep ADB without Wi-Fi (TCP/5555)",
-      "Keeps ADB available without Wi-Fi. TCP/5555 may be reachable on your network.",tcp) {
+      "Keeps ADB available without Wi-Fi. TCP/5555 may be reachable by devices on your network.",tcp) {
       tcp=it
       adb.setTcpMode(it)
     }
@@ -110,13 +110,13 @@ internal fun SeqAdbDiagnosticsScreen(
 }
 
 @Composable
-private fun AdbSettingCard(title:String,icon:ImageVector,body:@Composable ColumnScope.()->Unit) {
+private fun AdbSettingCard(title:String,icon:ImageVector?=null,body:@Composable ColumnScope.()->Unit) {
   Card(modifier=Modifier.fillMaxWidth(),
     colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surfaceContainerLow),
     shape=RoundedCornerShape(28.dp)) {
     Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
       Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-        Icon(icon,null,tint=MaterialTheme.colorScheme.primary)
+        if(icon!=null) Icon(icon,null,tint=MaterialTheme.colorScheme.primary)
         Text(title,style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.SemiBold)
       }
       body()
