@@ -89,6 +89,7 @@ private fun graphBand(x: Float, width: Float, count: Int) =
 
 private val factoryPresets = linkedMapOf(
   "Flat" to List(10) { 0f },
+  "Smooth" to listOf(0f, 0f, 0.5f, 1f, 0.5f, 0f, -0.5f, -1f, -1.5f, -1.5f),
   "Rock" to listOf(3f, 3f, 2f, 0f, -1f, -1f, 1f, 2f, 3f, 3f),
   "Club" to listOf(4f, 4f, 2f, 0f, -1f, 0f, 1f, 2f, 2f, 1f),
   "Cinematic" to listOf(3f, 3f, 1f, -1f, 0f, 1f, 2f, 2f, 1f, 0f),

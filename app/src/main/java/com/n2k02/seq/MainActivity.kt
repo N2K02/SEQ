@@ -26,6 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -247,8 +248,12 @@ class MainActivity : ComponentActivity() {
                     Text("Detected media", style = MaterialTheme.typography.titleMedium)
                     Row(verticalAlignment = Alignment.CenterVertically,
                       horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                      Icon(Icons.Rounded.MusicNote, null, tint = accent)
-                      Text(externalPlayer ?: if (mediaActive) "Media playing" else "No media playing")
+                      val player = externalPlayer
+                      val icon = remember(player?.icon) { player?.icon?.asImageBitmap() }
+                      if (icon != null) Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(32.dp))
+                      else Icon(Icons.Rounded.MusicNote, null, tint = accent, modifier = Modifier.size(32.dp))
+                      Text(player?.name ?: if (mediaActive) "Media playing" else "No media playing",
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     if (!mediaListenerConnected) TextButton(onClick = {
                       startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))

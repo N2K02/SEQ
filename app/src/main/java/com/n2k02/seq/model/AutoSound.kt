@@ -26,23 +26,23 @@ object AutoSound {
   private const val MAX_ADAPT = 3f
 
   fun base(route: RouteKind): Tone = when (route) {
-    // Small speakers: protect from bass overload, lift presence for clarity.
-    RouteKind.SPEAKER -> Tone(bass = -1f, mid = 1f, treble = 0.5f)
-    // Headphones: Harman-style low-shelf lift, slightly smoothed highs.
-    RouteKind.WIRED -> Tone(bass = 3f, mid = 0f, treble = -0.5f)
-    // Bluetooth earbuds/speakers are usually pre-tuned: gentle lift only.
-    RouteKind.BLUETOOTH -> Tone(bass = 2f, mid = 0f, treble = 0.5f)
-    // Cars: road noise masks lows and highs; mild mid scoop reduces boominess.
-    RouteKind.CAR -> Tone(bass = 2f, mid = -0.5f, treble = 1.5f)
+    RouteKind.SPEAKER -> Tone(bass = -1f, mid = 0.5f, treble = -0.5f)
+    RouteKind.WIRED -> Tone(bass = 2f, treble = -0.75f)
+    RouteKind.BLUETOOTH -> Tone(bass = 1f, treble = -0.5f)
+    RouteKind.CAR -> Tone(bass = 1.5f, mid = -0.5f, treble = 0.5f)
   }
 
   fun compose(route: RouteKind, volumeFraction: Float, adaptive: Tone): Tone {
-    val b = base(route)
-    val tone = Tone(b.bass + adaptive.bass, b.mid + adaptive.mid, b.treble + adaptive.treble)
-    val shaped = if (route == RouteKind.CAR) tone else LoudnessCompensation.apply(tone, volumeFraction)
-    val bassLimit = if (route == RouteKind.SPEAKER) 0f else 9f
-    return Tone(shaped.bass.coerceIn(-6f, bassLimit), shaped.mid.coerceIn(-4f, 4f),
-      shaped.treble.coerceIn(-6f, 6f))
+    val base = base(route)
+    val tone = Tone(base.bass + adaptive.bass * 0.5f, base.mid + adaptive.mid * 0.5f,
+      base.treble + adaptive.treble * 0.5f)
+    if (route == RouteKind.SPEAKER) {
+      return Tone(tone.bass.coerceIn(-3f, 0f), tone.mid.coerceIn(-1f, 1f),
+        tone.treble.coerceIn(-2f, 0f))
+    }
+    if (route == RouteKind.CAR) return tone
+    val volume = 0.5f + 0.5f * volumeFraction.coerceIn(0f, 1f)
+    return LoudnessCompensation.apply(tone, volume)
   }
 
   /**

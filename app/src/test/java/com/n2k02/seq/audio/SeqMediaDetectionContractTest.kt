@@ -76,4 +76,13 @@ class SeqMediaDetectionContractTest {
     assertTrue(analyzer.contains("generation != comparisonGeneration"))
     assertTrue(analyzer.indexOf("if (generation % 2 != 0)") < analyzer.indexOf("v.getFft(fft)"))
   }
+  @Test fun detectedMediaUsesAppIdentityAndKeepsAnUnknownPlayerFallback() {
+    val listener = source("java/com/n2k02/seq/audio/SeqMediaSessionListener.kt")
+    val activity = source("java/com/n2k02/seq/MainActivity.kt")
+    assertTrue(listener.contains("next?.let(::playerIdentity)"))
+    assertTrue(listener.contains("getApplicationLabel(it)"))
+    assertTrue(listener.contains("getApplicationIcon(it)"))
+    assertTrue(activity.contains("player?.name ?: if (mediaActive)"))
+    assertTrue(activity.contains("Image(bitmap = icon"))
+  }
 }

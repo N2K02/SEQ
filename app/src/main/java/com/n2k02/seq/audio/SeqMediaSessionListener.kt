@@ -2,6 +2,7 @@ package com.n2k02.seq.audio
 
 import android.app.Notification
 import android.content.ComponentName
+import android.graphics.Bitmap
 import android.media.session.MediaController
 import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
@@ -10,7 +11,10 @@ import android.os.Handler
 import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.flow.MutableStateFlow
+
+data class DetectedPlayer(val packageName: String, val name: String, val icon: Bitmap?)
 
 /**
  * PBar-style media-session discovery. Media tokens never expose an audio-effect session ID,
@@ -18,7 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
  */
 class SeqMediaSessionListener : NotificationListenerService() {
   companion object {
-    val detectedPlayer = MutableStateFlow<String?>(null)
+    val detectedPlayer = MutableStateFlow<DetectedPlayer?>(null)
     val connected = MutableStateFlow(false)
   }
   private val handler = Handler(Looper.getMainLooper())
@@ -101,12 +105,23 @@ class SeqMediaSessionListener : NotificationListenerService() {
           PlaybackState.STATE_REWINDING)
     }
     val next=playing?.packageName
-    if(detectedPlayer.value!=next) {
-      detectedPlayer.value=next
+    if (detectedPlayer.value?.packageName != next) {
+      detectedPlayer.value = next?.let(::playerIdentity)
       SeqRuntime.log(if(next==null) "No external media session playing"
         else "External media player detected: "+next.take(100))
       onPlaybackChanged()
     }
+  }
+
+  private fun playerIdentity(packageId: String): DetectedPlayer {
+    val manager = packageManager
+    val info = runCatching { manager.getApplicationInfo(packageId, 0) }.getOrNull()
+    val name = info?.let { runCatching { manager.getApplicationLabel(it).toString() }.getOrNull() }
+      ?.takeIf { it.isNotBlank() } ?: packageId
+    val icon = info?.let {
+      runCatching { manager.getApplicationIcon(it).toBitmap(width = 96, height = 96) }.getOrNull()
+    }
+    return DetectedPlayer(packageId, name, icon)
   }
 
   /** Session-level change (names the app); the playback monitor covers start/stop + engine. */

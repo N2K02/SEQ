@@ -29,6 +29,20 @@ class AutoSoundTest {
     assertEquals(0f, AutoSound.compose(RouteKind.SPEAKER, 0.2f, correction).bass, 0f)
     assertTrue(AutoSound.compose(RouteKind.WIRED, 0.2f, correction).bass > 0f)
   }
+  @Test fun smoothTuningLimitsBrightSpeakerAndVolumeCompensationOnHeadphones() {
+    val brightCorrection = Tone(bass = 3f, mid = 1.5f, treble = 3f)
+    for (volume in listOf(0f, 0.5f, 1f)) {
+      val speaker = AutoSound.compose(RouteKind.SPEAKER, volume, brightCorrection)
+      assertTrue(speaker.bass <= 0f && speaker.treble <= 0f && speaker.mid <= 1f)
+    }
+    for (route in listOf(RouteKind.WIRED, RouteKind.BLUETOOTH)) {
+      val full = AutoSound.compose(route, 1f, Tone())
+      val quiet = AutoSound.compose(route, 0f, Tone())
+      assertEquals(3f, quiet.bass - full.bass, 0.001f)
+      assertEquals(1f, quiet.treble - full.treble, 0.001f)
+    }
+  }
+
   @Test fun balancedMusicNeedsNoCorrection() {
     val t = AutoSound.adapt(target.map { it + 50 }.toDoubleArray())!!
     assertEquals(0f, t.bass, 1e-4f); assertEquals(0f, t.treble, 1e-4f); assertEquals(0f, t.mid, 1e-4f)
