@@ -25,10 +25,12 @@ class SeqSystemEffect private constructor(
   companion object {
     fun open(priority: Int, session: Int, tone: Tone, peakGuard: Boolean, ceilingDb: Float,
       manualBands: List<Float>?, bassDb: Float, preampDb: Float,
-      onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
-      val created = configure(runCatching { dynamics(priority, session) }.getOrNull(),
-        tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb)
-        ?: configure(runCatching { equalizer(priority, session) }.getOrNull(),
+      allowDynamics: Boolean = true, onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
+      val preferred = if (allowDynamics) {
+        configure(runCatching { dynamics(priority, session) }.getOrNull(),
+          tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb)
+      } else null
+      val created = preferred ?: configure(runCatching { equalizer(priority, session) }.getOrNull(),
           tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb)
       if (created != null && onControl != null) runCatching {
         created.effect.setControlStatusListener { _, granted -> onControl(created, granted) }
@@ -79,22 +81,35 @@ class SeqSystemEffect private constructor(
     tuning = next
   }
 
-  fun invalidateTuning() { tuning = null }
+  fun invalidateTuning() {
+    tuning = null
+    programmedCurve = null
+  }
 
   private fun program(tuning: Tuning) {
     dynamics?.let { dp ->
       val curve = SystemEqCurveBuilder.configured(tuning.tone, tuning.manualBands, tuning.bassDb,
         tuning.preampDb, allowBoost = tuning.peakGuard)
-      val eq = DynamicsProcessing.Eq(true, true, curve.bands.size)
-      curve.bands.forEachIndexed { i, b ->
-        eq.setBand(i, DynamicsProcessing.EqBand(true, b.cutoffHz, b.gainDb))
+      val previous = programmedCurve
+      val bandsChanged = previous?.bands != curve.bands
+      val previousTuning = this.tuning
+      val limiterChanged = previousTuning?.peakGuard != tuning.peakGuard ||
+        previousTuning?.ceilingDb != tuning.ceilingDb
+      val interimGain = if (bandsChanged) SystemEqCurveBuilder.transitionGain(previous, curve)
+        else minOf(checkNotNull(previous).inputGainDb, curve.inputGainDb)
+      if (previous?.inputGainDb != interimGain) dp.setInputGainAllChannelsTo(interimGain)
+      if (limiterChanged) {
+        dp.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, tuning.peakGuard, 0,
+          1f, 60f, 10f, tuning.ceilingDb.coerceIn(-12f, -0.1f), 0f))
       }
-      val guard = SystemEqCurveBuilder.transitionGain(programmedCurve, curve)
-      dp.setInputGainAllChannelsTo(guard)
-      dp.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, tuning.peakGuard, 0,
-        1f, 60f, 10f, tuning.ceilingDb.coerceIn(-12f, -0.1f), 0f))
-      dp.setPreEqAllChannelsTo(eq)
-      if (guard != curve.inputGainDb) dp.setInputGainAllChannelsTo(curve.inputGainDb)
+      if (bandsChanged) {
+        val eq = DynamicsProcessing.Eq(true, true, curve.bands.size)
+        curve.bands.forEachIndexed { i, band ->
+          eq.setBand(i, DynamicsProcessing.EqBand(true, band.cutoffHz, band.gainDb))
+        }
+        dp.setPreEqAllChannelsTo(eq)
+      }
+      if (interimGain != curve.inputGainDb) dp.setInputGainAllChannelsTo(curve.inputGainDb)
       programmedCurve = curve
       response = curve.bands.map { it.gainDb + curve.inputGainDb }
       return

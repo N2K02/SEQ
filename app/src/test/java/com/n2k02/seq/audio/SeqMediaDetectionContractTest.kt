@@ -52,4 +52,28 @@ class SeqMediaDetectionContractTest {
     assertTrue(listener.contains("SeqPlaybackMonitor.start(this)"))
     assertTrue(engine.contains("SeqPlaybackMonitor.start(this)"))
   }
+  @Test fun liveDynamicsFailureTriesOemWithoutRecreatingDynamics() {
+    val global = source("java/com/n2k02/seq/audio/SeqGlobalEffect.kt")
+    val backend = source("java/com/n2k02/seq/audio/SeqSystemEffect.kt")
+    assertTrue(global.contains("if (active.limiterAvailable) attach(allowDynamics = false)"))
+    assertTrue(backend.contains("if (allowDynamics)"))
+    assertTrue(backend.contains("preferred ?: configure(runCatching { equalizer"))
+  }
+
+  @Test fun preampOnlyChangesKeepExistingEqBandsAndLimiter() {
+    val backend = source("java/com/n2k02/seq/audio/SeqSystemEffect.kt")
+    val dynamics = backend.substringAfter("val bandsChanged").substringBefore("programmedCurve = curve")
+    assertTrue(dynamics.contains("if (bandsChanged) {"))
+    assertTrue(dynamics.contains("if (limiterChanged) {"))
+    assertTrue(dynamics.indexOf("setInputGainAllChannelsTo(interimGain)") <
+      dynamics.indexOf("setPreEqAllChannelsTo(eq)"))
+  }
+
+  @Test fun comparisonRequiresAControlledEffectAndExcludesAdaptiveSamples() {
+    val global = source("java/com/n2k02/seq/audio/SeqGlobalEffect.kt")
+    val analyzer = source("java/com/n2k02/seq/audio/SeqAdaptiveAnalyzer.kt")
+    assertTrue(global.contains("!current.hasControl || !current.bypass()"))
+    assertTrue(analyzer.contains("generation != comparisonGeneration"))
+    assertTrue(analyzer.indexOf("if (generation % 2 != 0)") < analyzer.indexOf("v.getFft(fft)"))
+  }
 }

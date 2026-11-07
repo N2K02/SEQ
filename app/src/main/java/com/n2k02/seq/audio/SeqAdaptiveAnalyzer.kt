@@ -52,7 +52,8 @@ object SeqAdaptiveAnalyzer {
   private var app: Context? = null
   private var sum: DoubleArray? = null
   private var frames = 0
-  private var applied = Tone()
+  private var smoothed = Tone()
+  private var comparisonGeneration = 0
   private var outputKey: Pair<Boolean, List<Int>>? = null
   private var fft = ByteArray(0)
 
@@ -107,7 +108,7 @@ object SeqAdaptiveAnalyzer {
   private fun resetCorrection() {
     sum = null
     frames = 0
-    applied = Tone()
+    smoothed = Tone()
     correction = Tone()
     state.value = Tone()
   }
@@ -116,6 +117,16 @@ object SeqAdaptiveAnalyzer {
 
   @Synchronized private fun sample() {
     val v = visualizer ?: return
+    val generation = SeqGlobalEffect.comparisonGeneration
+    if (generation != comparisonGeneration) {
+      comparisonGeneration = generation
+      sum = null
+      frames = 0
+    }
+    if (generation % 2 != 0) {
+      main.postDelayed(tick, SAMPLE_MS)
+      return
+    }
     runCatching {
       if (v.getFft(fft) == Visualizer.SUCCESS) {
         SpectrumMath.octaveDb(fft, v.samplingRate / 1000.0, AutoSound.OCTAVES)?.let { db ->
@@ -134,11 +145,10 @@ object SeqAdaptiveAnalyzer {
     val avg = DoubleArray(acc.size) { acc[it] / frames }
     sum = null; frames = 0
     val target = AutoSound.adapt(avg) ?: return
-    val next = AutoSound.smooth(correction, target)
-    correction = next
-    state.value = next
-    if (AutoSound.significant(applied, next)) {
-      applied = next
+    smoothed = AutoSound.smooth(smoothed, target)
+    if (AutoSound.significant(correction, smoothed)) {
+      correction = smoothed
+      state.value = smoothed
       app?.let(SeqGlobalEffect::sync)
     }
   }

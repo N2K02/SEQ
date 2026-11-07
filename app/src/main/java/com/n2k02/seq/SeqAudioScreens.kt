@@ -98,7 +98,7 @@ private val factoryPresets = linkedMapOf(
 @Composable
 internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
   settings: EngineSettings, positivePreamp: Boolean, compareEnabled: Boolean,
-  onCompare: (Boolean) -> Unit, onControls: (EngineSettings) -> Unit,
+  onCompare: (Boolean) -> Boolean, onControls: (EngineSettings) -> Unit,
   onApply: (List<Float>) -> Unit, onSave: (String, List<Float>) -> Unit) {
   val compactCount = SystemEqCurveBuilder.COMPACT_BAND_COUNT
   val precisionCount = SystemEqCurveBuilder.BAND_COUNT
@@ -190,8 +190,7 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer,
       modifier = Modifier.fillMaxWidth().pointerInput(Unit) {
         detectTapGestures(onPress = {
-          held = true
-          compare(true)
+          held = compare(true)
           try { tryAwaitRelease() } finally {
             held = false
             compare(false)
@@ -199,7 +198,7 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
         })
       }) {
       Box(Modifier.fillMaxWidth().padding(14.dp), contentAlignment = Alignment.Center) {
-        Text(if (held) "A/B • SEQ bypassed" else "Hold for A/B comparison")
+        Text(if (held) "A/B comparison" else "Hold for A/B comparison")
       }
     }
   }

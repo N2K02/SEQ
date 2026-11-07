@@ -17,12 +17,19 @@ object SeqGlobalEffect {
   private var effect: SeqSystemEffect? = null
   private var app: Context? = null
 
-  private var comparing = false
+  @Volatile var comparisonGeneration = 0
+    private set
+  val comparing: Boolean get() = comparisonGeneration % 2 != 0
 
-  @Synchronized fun compare(context: Context, held: Boolean) {
-    if (held == comparing) return
-    comparing = held
+  @Synchronized fun compare(context: Context, held: Boolean): Boolean {
+    if (held == comparing) return comparing
+    if (held) {
+      val current = effect ?: return false
+      if (!current.hasControl || !current.bypass()) return false
+    }
+    comparisonGeneration++
     sync(context)
+    return comparing
   }
 
   @Synchronized fun sync(context: Context) {
@@ -37,30 +44,47 @@ object SeqGlobalEffect {
     }
     try {
       val car = SeqRoute.isCar()
-      if (comparing && effect?.bypass() != false) {
-        publish(false, "", "A/B comparison • bypass", car, SeqRoute.describe(ctx, car))
+      if (comparing) {
+        val current = effect
+        val bypassed = current != null && current.hasControl && current.bypass()
+        val message = if (bypassed) "A/B comparison • bypass" else "A/B comparison unavailable"
+        publish(false, "", message, car, SeqRoute.describe(ctx, car))
         return
       }
       val route = SeqRoute.kind(ctx, car)
       val bands = store.routeBands(route) ?: s.manualBands
       val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(ctx))
       val tone = SeqRoute.tone(ctx, s, car)
-      val current = effect ?: SeqSystemEffect.open(PRIORITY, OUTPUT_MIX, tone, s.peakGuard,
-        s.peakCeilingDb, bands, bassDb, s.preampDb, ::onControl)?.also {
-        effect = it
-        SeqRuntime.log("Output mix effect attached (" + it.engine + ")")
-      }
-      if (current == null) {
-        publish(false, "", "Output mix effect unavailable", car, SeqRoute.describe(ctx, car))
-        return
-      }
-      if (!current.hasControl) {
+      fun attach(allowDynamics: Boolean): SeqSystemEffect? =
+        SeqSystemEffect.open(PRIORITY, OUTPUT_MIX, tone, s.peakGuard, s.peakCeilingDb,
+          bands, bassDb, s.preampDb, allowDynamics, ::onControl)?.also {
+          effect = it
+          SeqRuntime.log("Output mix effect attached (" + it.engine + ")")
+        }
+
+      var current = effect ?: attach(allowDynamics = true)
+      if (current != null && !current.hasControl) {
         publish(false, "", "Another audio effect app has control", car, SeqRoute.describe(ctx, car))
         return
       }
-      current.apply(tone, s.peakGuard, s.peakCeilingDb, bands, bassDb, s.preampDb)
-      if (!current.enable()) {
-        release("Output mix effect could not be enabled")
+      if (current != null) {
+        val active = current
+        val ready = runCatching {
+          active.apply(tone, s.peakGuard, s.peakCeilingDb, bands, bassDb, s.preampDb)
+          active.enable()
+        }.getOrDefault(false)
+        if (!ready) {
+          if (!active.hasControl) {
+            active.invalidateTuning()
+            publish(false, "", "Another audio effect app has control", car, SeqRoute.describe(ctx, car))
+            return
+          }
+          release("Output mix effect rejected tuning")
+          current = if (active.limiterAvailable) attach(allowDynamics = false) else null
+        }
+      }
+      if (current == null) {
+        publish(false, "", "Output mix effect unavailable", car, SeqRoute.describe(ctx, car))
         return
       }
       publish(true, current.engine, "Output mix effect enabled", car, SeqRoute.describe(ctx, car))
