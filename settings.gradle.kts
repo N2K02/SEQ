@@ -11,7 +11,8 @@ dependencyResolutionManagement {
     require(!privateToken.isNullOrBlank()) {
       "N2K02_PACKAGES_TOKEN (read:packages) is required for n2k02theme and n2k02updater"
     }
-    listOf("n2k02theme" to "theme","n2k02updater" to "updater").forEach { (repository, module) ->
+    listOf("n2k02theme" to "theme","n2k02updater" to "updater",
+      "n2k02AdbCoreLibrary" to "adb-core").forEach { (repository, module) ->
       maven {
         name="N2K02_${module}"
         url=uri("https://maven.pkg.github.com/N2K02/$repository")
