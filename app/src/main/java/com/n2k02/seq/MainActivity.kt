@@ -242,7 +242,8 @@ class MainActivity : ComponentActivity() {
                   context=this@MainActivity,
                   adb=adb,
                   engine=status,
-                  permissionRevision=permissionRevision
+                  permissionRevision=permissionRevision,
+                  showConnectionDetails=false
                 )
               }
               Page.DIAGNOSTICS -> {
