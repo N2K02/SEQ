@@ -15,6 +15,10 @@ enum class RouteKind(val title: String) {
  * Keep the phone speaker out of bass boost even after adaptive and loudness corrections.
  */
 object AutoSound {
+  fun shouldAnalyze(s: EngineSettings, mediaActive: Boolean, hasOutputPreset: Boolean,
+    permitted: Boolean): Boolean = mediaActive && permitted && s.enabled && s.adaptive &&
+    s.profile == AudioProfile.AUTO && s.manualBands == null && !hasOutputPreset
+
   /** Octave-band centres analysed by the adaptive stage. */
   val OCTAVES = doubleArrayOf(63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0)
   /** Typical long-term music spectrum relative to 1 kHz (dB) — the balance we steer towards. */

@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
       val mediaListenerConnected by SeqMediaSessionListener.connected.collectAsState()
       val mediaActive by SeqPlaybackMonitor.mediaActive.collectAsState()
       val carMode by SeqPlaybackMonitor.carMode.collectAsState()
+      val mediaVolume by SeqPlaybackMonitor.mediaVolume.collectAsState()
       val adaptiveOn = remember(permissionRevision) { SeqAdaptiveAnalyzer.permitted(this@MainActivity) }
       val activeRoute = SeqRoute.kind(this, carMode)
       val output = SeqRoute.describe(this, carMode)
@@ -128,12 +129,17 @@ class MainActivity : ComponentActivity() {
       val autoBands = remember(tone, adaptiveTone) {
         SystemEqCurveBuilder.build(tone, null).bands.map { it.gainDb }
       }
-      val response = if (settings.profile == AudioProfile.PURE) autoBands else manual ?: autoBands
+      val response = remember(settings, status.eqResponse, tone, manual, activeRoute, mediaVolume) {
+        if (settings.profile == AudioProfile.PURE) List(SystemEqCurveBuilder.BAND_COUNT) { 0f }
+        else status.eqResponse ?: SystemEqCurveBuilder.configured(tone, manual,
+          SystemEqCurveBuilder.bassGain(settings, activeRoute, mediaVolume), settings.preampDb,
+          allowBoost = false).let { curve -> curve.bands.map { it.gainDb + curve.inputGainDb } }
+      }
       fun update(next: EngineSettings) {
         settings = next
         store.write(next)
-        SeqGlobalEffect.sync(this)
         SeqAdaptiveAnalyzer.sync(this, SeqPlaybackMonitor.mediaActive.value)
+        SeqGlobalEffect.sync(this)
         if (!next.enabled) stopService(SeqEngineService.intent(this, SeqEngineService.STOP))
         else {
           val command = if (status.running) SeqEngineService.REFRESH else SeqEngineService.START
@@ -167,6 +173,7 @@ class MainActivity : ComponentActivity() {
                       }, label = { Text("Settings") })
                     NavigationBarItem(selected = false, onClick = {
                       update(settings.copy(enabled = false))
+                      SeqPlaybackMonitor.stop()
                       adb.shutdown()
                       SeqUpdater.controller.cancel()
                       finishAffinity()
@@ -320,6 +327,7 @@ class MainActivity : ComponentActivity() {
     super.onResume()
     permissionRevision++ // Refresh live Android grants after returning from system Settings.
     SeqAdaptiveAnalyzer.sync(this, SeqPlaybackMonitor.mediaActive.value)
+    SeqGlobalEffect.sync(this)
     adb.resumed()
     SeqUpdater.onResume(this)
   }

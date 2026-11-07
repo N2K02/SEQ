@@ -20,14 +20,32 @@ class LoudnessCompensationTest {
     assertTrue(t.bass <= 9f && t.treble <= 8f)
     assertEquals(5f, LoudnessCompensation.apply(Tone(), 0f).bass, 0.001f)
   }
-  @Test fun limiterHalvesPlatformHeadroomButPreampStillWins() {
+  @Test fun tinyPreampAdjustmentKeepsAutomaticHeadroomContinuous() {
     val tone = Tone(bass = 6f)
-    val full = SystemEqCurveBuilder.build(tone, null)
-    val half = SystemEqCurveBuilder.build(tone, null, limiter = true)
-    assertEquals(full.inputGainDb / 2f, half.inputGainDb, 0.05f)
+    val base = SystemEqCurveBuilder.configured(tone, null, 0f, 0f, allowBoost = true)
+    val adjusted = SystemEqCurveBuilder.configured(tone, null, 0f, 0.01f, allowBoost = true)
+    assertEquals(base.inputGainDb + 0.01f, adjusted.inputGainDb, 0.001f)
     val p = HeadphoneProfile("x", -7.0, listOf(EqFilter(FilterKind.PEAK, 1000.0, 3.0, 1.0)))
-    assertEquals(-7f, SystemEqCurveBuilder.build(Tone(), p, limiter = true).inputGainDb, 0.01f)
+    assertEquals(-7f, SystemEqCurveBuilder.build(Tone(), p).inputGainDb, 0.01f)
   }
+
+  @Test fun transitionProtectsBothCurvesBeforeFinalPreamp() {
+    val boosted = SystemEqCurveBuilder.configured(Tone(), List(10) { 6f }, 0f, 4f, allowBoost = true)
+    val flat = SystemEqCurveBuilder.manual(List(10) { 0f })
+    assertEquals(-6f, SystemEqCurveBuilder.transitionGain(flat, boosted), 0f)
+    assertEquals(-6f, SystemEqCurveBuilder.transitionGain(boosted, flat), 0f)
+    assertEquals(-6f, SystemEqCurveBuilder.transitionGain(null, boosted), 0f)
+  }
+
+  @Test fun manualOutputPresetSuppressesAdaptiveAnalysis() {
+    val s = EngineSettings(enabled = true)
+    assertTrue(AutoSound.shouldAnalyze(s, true, false, true))
+    assertFalse(AutoSound.shouldAnalyze(s, true, true, true))
+    assertFalse(AutoSound.shouldAnalyze(s.copy(manualBands = List(10) { 0f }), true, false, true))
+    assertFalse(AutoSound.shouldAnalyze(s.copy(profile = AudioProfile.PURE), true, false, true))
+    assertFalse(AutoSound.shouldAnalyze(s, false, false, true))
+  }
+
   @Test fun limiterAndLoudnessAreDefaults() {
     assertTrue(EngineSettings().peakGuard)
     assertTrue(EngineSettings().loudness)

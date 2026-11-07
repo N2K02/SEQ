@@ -53,6 +53,8 @@ object SeqAdaptiveAnalyzer {
   private var sum: DoubleArray? = null
   private var frames = 0
   private var applied = Tone()
+  private var outputKey: Pair<Boolean, List<Int>>? = null
+  private var fft = ByteArray(0)
 
   fun permitted(context: Context) =
     context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -61,27 +63,53 @@ object SeqAdaptiveAnalyzer {
   @Synchronized fun sync(context: Context, mediaActive: Boolean) {
     val ctx = context.applicationContext
     app = ctx
-    val s = SettingsStore(ctx).read()
-    val want = mediaActive && s.enabled && s.adaptive && s.manualBands == null &&
-      s.profile == com.n2k02.seq.model.AudioProfile.AUTO && permitted(ctx)
+    val store = SettingsStore(ctx)
+    val s = store.read()
+    val car = SeqRoute.isCar()
+    val hasOutputPreset = store.routeBands(SeqRoute.kind(ctx, car)) != null
+    val want = AutoSound.shouldAnalyze(s, mediaActive, hasOutputPreset, permitted(ctx))
     if (!want) { stop(); return }
+    val key = SeqRoute.outputKey(ctx, car)
+    if (key != outputKey) {
+      resetCorrection()
+      outputKey = key
+    }
     if (visualizer != null) return
+    var candidate: Visualizer? = null
     visualizer = runCatching {
-      Visualizer(0).apply {
-        captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024)
-        scalingMode = Visualizer.SCALING_MODE_NORMALIZED
-        enabled = true
-      }
-    }.onFailure { SeqRuntime.log("Adaptive analysis unavailable: " + it.javaClass.simpleName) }
-      .getOrNull()
+      val analyzer = Visualizer(0)
+      candidate = analyzer
+      val sizes = Visualizer.getCaptureSizeRange()
+      analyzer.captureSize = sizes.last().coerceAtMost(4096).coerceAtLeast(sizes.first())
+      analyzer.scalingMode = Visualizer.SCALING_MODE_NORMALIZED
+      check(analyzer.setEnabled(true) == Visualizer.SUCCESS)
+      fft = ByteArray(analyzer.captureSize)
+      analyzer
+    }.onFailure {
+      runCatching { candidate?.release() }
+      SeqRuntime.log("Adaptive analysis unavailable: " + it.javaClass.simpleName)
+    }.getOrNull()
     if (visualizer != null) main.postDelayed(tick, SAMPLE_MS)
   }
 
   @Synchronized fun stop() {
     main.removeCallbacks(tick)
-    visualizer?.let { runCatching { it.enabled = false; it.release() } }
+    visualizer?.let {
+      runCatching { it.setEnabled(false) }
+      runCatching { it.release() }
+    }
     visualizer = null
-    sum = null; frames = 0
+    fft = ByteArray(0)
+    outputKey = null
+    resetCorrection()
+  }
+
+  private fun resetCorrection() {
+    sum = null
+    frames = 0
+    applied = Tone()
+    correction = Tone()
+    state.value = Tone()
   }
 
   private val tick = Runnable { sample() }
@@ -89,7 +117,6 @@ object SeqAdaptiveAnalyzer {
   @Synchronized private fun sample() {
     val v = visualizer ?: return
     runCatching {
-      val fft = ByteArray(v.captureSize)
       if (v.getFft(fft) == Visualizer.SUCCESS) {
         SpectrumMath.octaveDb(fft, v.samplingRate / 1000.0, AutoSound.OCTAVES)?.let { db ->
           val acc = sum ?: DoubleArray(db.size).also { sum = it }

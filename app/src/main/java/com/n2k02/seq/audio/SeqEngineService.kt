@@ -21,6 +21,11 @@ import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.EngineSettings
 import com.n2k02.seq.model.SettingsStore
 import com.n2k02.seq.model.SystemEqCurveBuilder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 /**
  * User-started foreground engine service.
@@ -38,6 +43,7 @@ class SeqEngineService : Service() {
     fun intent(context: Context, action: String) =
       Intent(context, SeqEngineService::class.java).setAction(action)
   }
+  private val routeScope = CoroutineScope(Dispatchers.Main.immediate)
   private val effects = LinkedHashMap<Int, SeqSystemEffect>()
   private lateinit var audio: AudioManager
   private lateinit var settings: SettingsStore
@@ -85,6 +91,10 @@ class SeqEngineService : Service() {
     audio.registerAudioDeviceCallback(callback, null)
     callbackRegistered = true
     SeqPlaybackMonitor.start(this)
+    routeScope.launch {
+      combine(SeqPlaybackMonitor.carMode, SeqPlaybackMonitor.mediaVolume) { car, volume -> car to volume }
+        .collect { if (!settings.read().allMedia) refresh() }
+    }
   }
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == STOP || !settings.read().enabled) {
@@ -120,7 +130,7 @@ class SeqEngineService : Service() {
   private fun attach(id: Int) {
     val s = settings.read()
     if (!SessionPolicy.canAttach(s, id, effects.containsKey(id))) return
-    val car = SeqRoute.isCar(this, s)
+    val car = SeqRoute.isCar()
     val route = SeqRoute.kind(this, car)
     val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(this))
     val effect = SeqSystemEffect.open(0, id, SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb,
@@ -135,7 +145,7 @@ class SeqEngineService : Service() {
     report("Audio session attached")
   }
   private fun apply(effect: SeqSystemEffect, s: EngineSettings) {
-    val car = SeqRoute.isCar(this, s)
+    val car = SeqRoute.isCar()
     val route = SeqRoute.kind(this, car)
     val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(this))
     effect.apply(SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb,
@@ -163,15 +173,17 @@ class SeqEngineService : Service() {
     effects.clear()
   }
   private fun report(message: String) {
-    val s = settings.read()
-    val car = SeqRoute.isCar(this, s)
+    val car = SeqRoute.isCar()
     SeqRuntime.status.value = SeqRuntime.status.value.copy(
       running = true, sessions = effects.size, lastEvent = message,
       carProfileActive = car, route = SeqRoute.describe(this, car),
-      effectAttached = effects.isNotEmpty()
+      effectAttached = effects.isNotEmpty(),
+      eqResponse = if (SeqRuntime.status.value.globalActive) SeqRuntime.status.value.eqResponse
+        else effects.values.singleOrNull()?.response
     )
   }
   override fun onDestroy() {
+    routeScope.cancel()
     releaseAll()
     if (receiverRegistered) unregisterReceiver(receiver)
     if (callbackRegistered) audio.unregisterAudioDeviceCallback(callback)

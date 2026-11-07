@@ -3,6 +3,7 @@ package com.n2k02.seq.audio
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.DynamicsProcessing
 import android.media.audiofx.Equalizer
+import com.n2k02.seq.model.SystemEqCurve
 import com.n2k02.seq.model.SystemEqCurveBuilder
 import com.n2k02.seq.model.Tone
 import java.io.Closeable
@@ -66,6 +67,9 @@ class SeqSystemEffect private constructor(
   private data class Tuning(val tone: Tone, val peakGuard: Boolean, val ceilingDb: Float,
     val manualBands: List<Float>?, val bassDb: Float, val preampDb: Float)
   private var tuning: Tuning? = null
+  private var programmedCurve: SystemEqCurve? = null
+  var response: List<Float>? = null
+    private set
 
   fun apply(tone: Tone, peakGuard: Boolean, ceilingDb: Float, manualBands: List<Float>?,
     bassDb: Float, preampDb: Float) {
@@ -78,22 +82,25 @@ class SeqSystemEffect private constructor(
   fun invalidateTuning() { tuning = null }
 
   private fun program(tuning: Tuning) {
-    val manual = tuning.manualBands?.let(SystemEqCurveBuilder::manual)
     dynamics?.let { dp ->
-      val base = manual ?: SystemEqCurveBuilder.build(tuning.tone, null, limiter = tuning.peakGuard)
-      val curve = SystemEqCurveBuilder.withOutputControls(base, tuning.bassDb, tuning.preampDb,
-        allowBoost = tuning.peakGuard)
+      val curve = SystemEqCurveBuilder.configured(tuning.tone, tuning.manualBands, tuning.bassDb,
+        tuning.preampDb, allowBoost = tuning.peakGuard)
       val eq = DynamicsProcessing.Eq(true, true, curve.bands.size)
       curve.bands.forEachIndexed { i, b ->
         eq.setBand(i, DynamicsProcessing.EqBand(true, b.cutoffHz, b.gainDb))
       }
-      dp.setPreEqAllChannelsTo(eq)
-      dp.setInputGainAllChannelsTo(curve.inputGainDb)
+      val guard = SystemEqCurveBuilder.transitionGain(programmedCurve, curve)
+      dp.setInputGainAllChannelsTo(guard)
       dp.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, tuning.peakGuard, 0,
         1f, 60f, 10f, tuning.ceilingDb.coerceIn(-12f, -0.1f), 0f))
+      dp.setPreEqAllChannelsTo(eq)
+      if (guard != curve.inputGainDb) dp.setInputGainAllChannelsTo(curve.inputGainDb)
+      programmedCurve = curve
+      response = curve.bands.map { it.gainDb + curve.inputGainDb }
       return
     }
     equalizer?.let { eq ->
+      val manual = tuning.manualBands?.let(SystemEqCurveBuilder::manual)
       val range = eq.bandLevelRange
       val centres = List(eq.numberOfBands.toInt()) { eq.getCenterFreq(it.toShort()) / 1000f }
       check(centres.isNotEmpty() && range[0] <= 0 && range[1] >= 0)
@@ -101,8 +108,9 @@ class SeqSystemEffect private constructor(
         val base = manual ?: SystemEqCurveBuilder.build(tuning.tone, null)
         SystemEqCurveBuilder.withOutputControls(base, tuning.bassDb, tuning.preampDb, allowBoost = false)
       } else manual
-      SystemEqCurveBuilder.oemLevels(tuning.tone, centres, range[0].toInt()..range[1].toInt(), adjusted)
-        .forEachIndexed { i, level -> eq.setBandLevel(i.toShort(), level) }
+      val levels = SystemEqCurveBuilder.oemLevels(tuning.tone, centres, range[0].toInt()..range[1].toInt(), adjusted)
+      levels.forEachIndexed { i, level -> eq.setBandLevel(i.toShort(), level) }
+      response = levels.map { it / 100f }
     }
   }
 

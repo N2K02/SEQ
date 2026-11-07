@@ -54,4 +54,10 @@ class SessionPolicyTest {
     assertEquals(RouteKind.WIRED,
       RoutePolicy.kind(false, RoutePolicy.mediaOutputs(emptyList()) { listOf(speaker, wired) }))
   }
+  @Test fun androidAutoProjectionDoesNotDependOnModernUiMode() {
+    assertTrue(RoutePolicy.carProfile(projecting = true, sdk = 35, legacyCarMode = false))
+    assertFalse(RoutePolicy.carProfile(projecting = false, sdk = 35, legacyCarMode = true))
+    assertTrue(RoutePolicy.carProfile(projecting = false, sdk = 30, legacyCarMode = true))
+    assertFalse(RoutePolicy.carProfile(projecting = false, sdk = 30, legacyCarMode = false))
+  }
 }

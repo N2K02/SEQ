@@ -29,12 +29,13 @@ import androidx.compose.ui.unit.dp
 import com.n2k02.seq.audio.EngineStatus
 import com.n2k02.seq.model.*
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
 internal fun ResponseGraph(gains: List<Float>, description: String, onBand: ((Int, Float) -> Unit)? = null) {
   val update by rememberUpdatedState(onBand)
-  val limit = if (onBand == null) 12f else SystemEqCurveBuilder.MANUAL_LIMIT_DB
+  val limit = if (onBand == null) gains.maxOf { abs(it) }.coerceAtLeast(12f) else SystemEqCurveBuilder.MANUAL_LIMIT_DB
   val gesture = if (onBand == null) Modifier else Modifier
     .pointerInput(gains.size) {
       detectTapGestures { point ->
@@ -63,7 +64,7 @@ internal fun ResponseGraph(gains: List<Float>, description: String, onBand: ((In
     drawLine(grid, Offset(0f, middle), Offset(size.width, middle))
     val curve = Path()
     gains.forEachIndexed { i, gain ->
-      val x = size.width * i / (gains.size - 1)
+      val x = size.width * i / (gains.size - 1).coerceAtLeast(1)
       val y = middle - gain.coerceIn(-limit, limit) * middle / limit
       if (i == 0) curve.moveTo(x, y) else curve.lineTo(x, y)
     }

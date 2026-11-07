@@ -15,6 +15,9 @@ import com.n2k02.seq.model.Tone
 
 /** Pure output classification so it can be unit tested. */
 object RoutePolicy {
+  fun carProfile(projecting: Boolean, sdk: Int, legacyCarMode: Boolean): Boolean =
+    projecting || (sdk < Build.VERSION_CODES.S && legacyCarMode)
+
   fun <T> mediaOutputs(routed: List<T>, connected: () -> List<T>): List<T> =
     routed.ifEmpty(connected)
 
@@ -32,15 +35,17 @@ object RoutePolicy {
 
 /** One route + tone decision for every SEQ path (native DSP, session and all-media effects). */
 object SeqRoute {
-  /** Android Auto puts the phone in car UI mode while projecting. */
-  fun isCarMode(context: Context): Boolean = runCatching {
+  /** Fallback for older versions where projection can change the phone UI mode. */
+  fun legacyCarMode(context: Context): Boolean = runCatching {
     (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType ==
       Configuration.UI_MODE_TYPE_CAR
   }.getOrDefault(false)
 
-  /** Car profile is automatic: Android Auto (car mode). */
-  @Suppress("UNUSED_PARAMETER")
-  fun isCar(context: Context, s: EngineSettings): Boolean = isCarMode(context)
+  fun isCar(): Boolean = SeqPlaybackMonitor.carMode.value
+
+  /** A new device ID can require new tuning even when the output category is unchanged. */
+  fun outputKey(context: Context, car: Boolean): Pair<Boolean, List<Int>> =
+    car to outputs(context).map { it.id }.sorted()
 
   fun kind(context: Context, car: Boolean): RouteKind =
     RoutePolicy.kind(car, outputs(context).map { it.type })

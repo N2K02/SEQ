@@ -44,6 +44,7 @@ android {
   packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }
 dependencies {
+  implementation("androidx.car.app:app:1.7.0")
   val composeBom = platform("androidx.compose:compose-bom:2025.12.00")
   implementation(composeBom)
   implementation("androidx.activity:activity-compose:1.12.4")

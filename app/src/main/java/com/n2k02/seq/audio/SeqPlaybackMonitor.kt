@@ -13,6 +13,9 @@ import android.media.AudioPlaybackConfiguration
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.car.app.connection.CarConnection
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.Observer
 import com.n2k02.seq.model.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -34,6 +37,13 @@ object SeqPlaybackMonitor {
   /** True while any app is playing media/game audio. */
   val mediaActive = MutableStateFlow(false)
   val carMode = MutableStateFlow(false)
+  val mediaVolume = MutableStateFlow(1f)
+  private var carConnection: LiveData<Int>? = null
+  private var projecting = false
+  private val connectionObserver = Observer<Int> { type ->
+    projecting = type == CarConnection.CONNECTION_TYPE_PROJECTION
+    app?.let(::updateCar)
+  }
   private var app: Context? = null
   private val main = Handler(Looper.getMainLooper())
   private const val VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
@@ -61,14 +71,19 @@ object SeqPlaybackMonitor {
         main.postDelayed(volumeSync, 150)
         return
       }
-      val car = SeqRoute.isCarMode(context)
-      if (carMode.value != car) {
-        carMode.value = car
-        SeqRuntime.log(if (car) "Android Auto / car mode entered" else "Car mode exited")
-      }
-      resync()
-      if (car) startEngine(context)
+      updateCar(context)
     }
+  }
+
+  private fun updateCar(context: Context) {
+    val legacy = Build.VERSION.SDK_INT < Build.VERSION_CODES.S && SeqRoute.legacyCarMode(context)
+    val car = RoutePolicy.carProfile(projecting, Build.VERSION.SDK_INT, legacy)
+    if (carMode.value != car) {
+      carMode.value = car
+      SeqRuntime.log(if (car) "Car profile selected" else "Car profile cleared")
+    }
+    resync()
+    if (car) startEngine(context)
   }
 
   /** Idempotent; safe to call from activity, engine service and media listener. */
@@ -86,8 +101,11 @@ object SeqPlaybackMonitor {
       addAction(VOLUME_CHANGED)
     }
     runCatching { registerCarReceiver(ctx, filter) }
-    carMode.value = SeqRoute.isCarMode(ctx)
     update(runCatching { audio.activePlaybackConfigurations }.getOrDefault(emptyList()))
+    runCatching {
+      CarConnection(ctx).type.also { carConnection = it }.observeForever(connectionObserver)
+    }.onFailure { SeqRuntime.log("Car connection unavailable: " + it.javaClass.simpleName) }
+    updateCar(ctx)
   }
 
   @Suppress("UnspecifiedRegisterReceiverFlag")
@@ -105,11 +123,31 @@ object SeqPlaybackMonitor {
     mediaActive.value = active
     SeqRuntime.log(if (active) "Media playback detected" else "Media playback stopped")
     resync()
-    app?.let { SeqAdaptiveAnalyzer.sync(it, active) }
     if (active) app?.let(::startEngine)
   }
 
-  private fun resync() { app?.let(SeqGlobalEffect::sync) }
+  private fun resync() {
+    val ctx = app ?: return
+    mediaVolume.value = SeqRoute.volumeFraction(ctx)
+    SeqAdaptiveAnalyzer.sync(ctx, mediaActive.value)
+    SeqGlobalEffect.sync(ctx)
+  }
+
+  @Synchronized fun stop() {
+    val ctx = app ?: return
+    app = null
+    carConnection?.removeObserver(connectionObserver)
+    carConnection = null
+    projecting = false
+    carMode.value = false
+    mediaActive.value = false
+    main.removeCallbacks(volumeSync)
+    val audio = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    runCatching { audio.unregisterAudioPlaybackCallback(playback) }
+    runCatching { audio.unregisterAudioDeviceCallback(devices) }
+    runCatching { ctx.unregisterReceiver(carReceiver) }
+    SeqAdaptiveAnalyzer.stop()
+  }
 
   /** Best effort: Android can refuse background FGS starts; the effect still runs in-process. */
   private fun startEngine(context: Context) {

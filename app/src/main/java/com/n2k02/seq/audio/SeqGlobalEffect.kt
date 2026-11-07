@@ -36,7 +36,7 @@ object SeqGlobalEffect {
       return
     }
     try {
-      val car = SeqRoute.isCar(ctx, s)
+      val car = SeqRoute.isCar()
       if (comparing && effect?.bypass() != false) {
         publish(false, "", "A/B comparison • bypass", car, SeqRoute.describe(ctx, car))
         return
@@ -93,6 +93,7 @@ object SeqGlobalEffect {
     val s = SeqRuntime.status.value
     SeqRuntime.status.value = s.copy(globalActive = active, effectEngine = engine,
       limiterAvailable = active && effect?.limiterAvailable == true,
+      eqResponse = if (active) effect?.response else null,
       lastEvent = event, carProfileActive = car ?: s.carProfileActive, route = route ?: s.route)
   }
 }
