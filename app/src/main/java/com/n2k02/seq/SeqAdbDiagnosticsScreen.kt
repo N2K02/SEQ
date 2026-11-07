@@ -23,7 +23,8 @@ internal fun SeqAdbDiagnosticsScreen(
   context: Context,
   adb: LocalAdbDiagnostics,
   engine: EngineStatus,
-  permissionRevision: Int
+  permissionRevision: Int,
+  showConnectionDetails: Boolean = true,
 ) {
   val pref=adb.preferences
   var autoPair by remember { mutableStateOf(pref.autoPairCode) }
@@ -38,7 +39,7 @@ internal fun SeqAdbDiagnosticsScreen(
   // Mirror VRec's Home connection details without treating a saved
   // authorization as a currently connected shell. Diagnostics is on demand.
   val status by adb.state.collectAsState()
-  AdbSettingCard("SEQ ADB Details", Icons.Rounded.Info) {
+  if (showConnectionDetails) AdbSettingCard("SEQ ADB Details", Icons.Rounded.Info) {
     Text(
       when {
         status.busy -> "Checking local ADB…"
