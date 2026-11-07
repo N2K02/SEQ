@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -111,11 +113,11 @@ internal fun SeqAdbDiagnosticsScreen(
 private fun AdbSettingCard(title:String,icon:ImageVector,body:@Composable ColumnScope.()->Unit) {
   Card(modifier=Modifier.fillMaxWidth(),
     colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surfaceContainerLow),
-    shape=MaterialTheme.shapes.large) {
-    Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+    shape=RoundedCornerShape(28.dp)) {
+    Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
       Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
         Icon(icon,null,tint=MaterialTheme.colorScheme.primary)
-        Text(title,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
+        Text(title,style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.SemiBold)
       }
       body()
     }
@@ -124,13 +126,12 @@ private fun AdbSettingCard(title:String,icon:ImageVector,body:@Composable Column
 
 @Composable
 private fun AdbSettingToggle(title:String,subtitle:String,checked:Boolean,onChecked:(Boolean)->Unit) {
-  Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
+  Row(Modifier.fillMaxWidth().clickable { onChecked(!checked) },verticalAlignment=Alignment.CenterVertically) {
+    Column(Modifier.weight(1f).padding(end=12.dp),verticalArrangement=Arrangement.spacedBy(3.dp)) {
       Text(title,style=MaterialTheme.typography.bodyLarge)
       Text(subtitle,style=MaterialTheme.typography.bodySmall,
         color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    Spacer(Modifier.width(8.dp))
     Switch(checked=checked,onCheckedChange=onChecked)
   }
 }
