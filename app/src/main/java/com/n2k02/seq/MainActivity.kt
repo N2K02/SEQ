@@ -62,13 +62,14 @@ private val background: Color @Composable get() = MaterialTheme.colorScheme.back
 private val panel: Color @Composable get() = MaterialTheme.colorScheme.surfaceContainerLow
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
-  HOME("Home"), SETTINGS("Settings"), DIAGNOSTICS("Diagnostics"),
+  HOME("Home"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"), DIAGNOSTICS("Diagnostics"),
   UPDATES("Updates")
 }
 
 private fun pageIcon(page:Page):ImageVector = when(page) {
   Page.HOME -> Icons.Rounded.Home
   Page.SETTINGS -> Icons.Rounded.Settings
+    Page.ADB_CONNECTION -> Icons.Rounded.SettingsInputAntenna
   Page.DIAGNOSTICS -> Icons.Rounded.MonitorHeart
   Page.UPDATES -> Icons.Rounded.SystemUpdate
 }
@@ -92,8 +93,8 @@ class MainActivity : ComponentActivity() {
       var page by rememberSaveable { mutableStateOf(Page.HOME) }
       BackHandler(enabled=page != Page.HOME && page != Page.SETTINGS) { page=Page.SETTINGS }
       DisposableEffect(page) {
-        if(page==Page.DIAGNOSTICS) adb.enterPage()
-        onDispose { if(page==Page.DIAGNOSTICS) adb.leavePage() }
+        if((page==Page.DIAGNOSTICS || page==Page.ADB_CONNECTION)) adb.enterPage()
+        onDispose { if((page==Page.DIAGNOSTICS || page==Page.ADB_CONNECTION)) adb.leavePage() }
       }
       val updateStatus by SeqUpdater.controller.status.collectAsState()
       val experimentalEnabled by SeqUpdater.experimentalEnabled.collectAsState()
@@ -231,9 +232,18 @@ class MainActivity : ComponentActivity() {
                 }
               }
               Page.SETTINGS -> {
+                MenuRow("ADB connection", "Pairing, recovery and TCP/5555", Icons.Rounded.SettingsInputAntenna) { page = Page.ADB_CONNECTION }
                 MenuRow("Diagnostics", "Direct ADB • Audio sessions", Icons.Rounded.MonitorHeart) { page = Page.DIAGNOSTICS }
                 MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",
                   Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
+              }
+              Page.ADB_CONNECTION -> {
+                SeqAdbDiagnosticsScreen(
+                  context=this@MainActivity,
+                  adb=adb,
+                  engine=status,
+                  permissionRevision=permissionRevision
+                )
               }
               Page.DIAGNOSTICS -> {
                 SeqAdbDiagnosticsScreen(
