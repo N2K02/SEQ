@@ -160,7 +160,7 @@ class MainActivity : ComponentActivity() {
                     Column(Modifier.weight(1f)) {
                       Text("Audio Engine", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                       Text(when {
-                          status.globalActive -> "● Processing all media"
+                          status.globalActive -> "● Output mix effect enabled"
                           status.effectAttached -> "● Effect attached"
                           settings.enabled -> status.lastEvent
                           else -> "Off"
@@ -186,7 +186,7 @@ class MainActivity : ComponentActivity() {
                     mediaActive -> "Media playing"
                     else -> "No media playing"
                   } + (if(carMode) " • Android Auto" else "") +
-                    (if(mediaActive && status.globalActive) " • SEQ processing" else ""),
+                    (if(mediaActive && status.globalActive) " • Output mix effect enabled" else ""),
                     color=if(mediaActive && status.processing) accent else quiet,fontSize=12.sp)
                   if(!mediaListenerConnected) TextButton(onClick={
                     startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))

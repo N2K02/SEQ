@@ -12,7 +12,7 @@ enum class RouteKind(val title: String) {
  * 1. Output-aware base balance (speaker clarity, headphone/Harman-style bass, car road-noise).
  * 2. Adaptive music correction from a slow analysis of what is playing (optional).
  * 3. Volume-adaptive equal-loudness (not in the car, where the head unit sets the level).
- * The limiter and smart headroom are always on, so boosts stay loud but never clip.
+ * Keep the phone speaker out of bass boost even after adaptive and loudness corrections.
  */
 object AutoSound {
   /** Octave-band centres analysed by the adaptive stage. */
@@ -36,7 +36,8 @@ object AutoSound {
     val b = base(route)
     val tone = Tone(b.bass + adaptive.bass, b.mid + adaptive.mid, b.treble + adaptive.treble)
     val shaped = if (route == RouteKind.CAR) tone else LoudnessCompensation.apply(tone, volumeFraction)
-    return Tone(shaped.bass.coerceIn(-6f, 9f), shaped.mid.coerceIn(-4f, 4f),
+    val bassLimit = if (route == RouteKind.SPEAKER) 0f else 9f
+    return Tone(shaped.bass.coerceIn(-6f, bassLimit), shaped.mid.coerceIn(-4f, 4f),
       shaped.treble.coerceIn(-6f, 6f))
   }
 

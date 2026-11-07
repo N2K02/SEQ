@@ -1,5 +1,6 @@
 package com.n2k02.seq.model
 
+import kotlin.math.roundToInt
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -42,5 +43,15 @@ object SystemEqCurveBuilder {
     val headroom = maxOf(if (limiter) boost * 0.5 else boost, preamp).coerceIn(0.0, 24.0)
     return SystemEqCurve(round2(-headroom) + 0f, bands)
   }
+  /**
+   * OEM Equalizer has no separate input gain or limiter. Shift its entire curve down and
+   * retain cuts where the hardware range allows. The programmed bands never add gain.
+   */
+  fun oemLevels(tone: Tone, centreHz: List<Float>, range: IntRange): List<Short> {
+    val gains = centreHz.map { EqResponse.totalDb(it.toDouble(), tone, null) }
+    val headroom = (gains.maxOrNull() ?: 0.0).coerceAtLeast(0.0)
+    return gains.map { ((it - headroom) * 100).roundToInt().coerceIn(range).toShort() }
+  }
+
   private fun round2(v: Double): Float = (Math.round(v * 100.0) / 100.0).toFloat()
 }

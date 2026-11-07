@@ -24,6 +24,11 @@ class AutoSoundTest {
     assertTrue(quiet.bass > full.bass)
     assertEquals(AutoSound.compose(RouteKind.CAR, 1f, Tone()), AutoSound.compose(RouteKind.CAR, 0.2f, Tone()))
   }
+  @Test fun quietPhoneSpeakerDoesNotBoostBassEvenWithAdaptiveCorrection() {
+    val correction = Tone(bass = 3f)
+    assertEquals(0f, AutoSound.compose(RouteKind.SPEAKER, 0.2f, correction).bass, 0f)
+    assertTrue(AutoSound.compose(RouteKind.WIRED, 0.2f, correction).bass > 0f)
+  }
   @Test fun balancedMusicNeedsNoCorrection() {
     val t = AutoSound.adapt(target.map { it + 50 }.toDoubleArray())!!
     assertEquals(0f, t.bass, 1e-4f); assertEquals(0f, t.treble, 1e-4f); assertEquals(0f, t.mid, 1e-4f)

@@ -3,8 +3,10 @@ package com.n2k02.seq.audio
 import android.app.UiModeManager
 import android.content.Context
 import android.content.res.Configuration
+import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.os.Build
 import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.AutoSound
 import com.n2k02.seq.model.EngineSettings
@@ -13,6 +15,9 @@ import com.n2k02.seq.model.Tone
 
 /** Pure output classification so it can be unit tested. */
 object RoutePolicy {
+  fun <T> mediaOutputs(routed: List<T>, connected: () -> List<T>): List<T> =
+    routed.ifEmpty(connected)
+
   fun kind(carMode: Boolean, outputTypes: List<Int>): RouteKind = when {
     carMode -> RouteKind.CAR
     outputTypes.any { it in WIRED } -> RouteKind.WIRED
@@ -64,8 +69,16 @@ object SeqRoute {
     return name?.let { "$it • ${kind.title}" } ?: kind.title
   }
 
-  private fun outputs(context: Context): Array<AudioDeviceInfo> = runCatching {
-    (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager)
-      .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-  }.getOrDefault(emptyArray())
+  private val mediaAttributes = AudioAttributes.Builder()
+    .setUsage(AudioAttributes.USAGE_MEDIA)
+    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+    .build()
+
+  private fun outputs(context: Context): List<AudioDeviceInfo> = runCatching {
+    val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    val routed = if (Build.VERSION.SDK_INT >= 33) {
+      runCatching { audio.getAudioDevicesForAttributes(mediaAttributes) }.getOrDefault(emptyList())
+    } else emptyList()
+    RoutePolicy.mediaOutputs(routed) { audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList() }
+  }.getOrDefault(emptyList())
 }

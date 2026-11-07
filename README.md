@@ -5,9 +5,9 @@ SEQ is a battery-conscious experimental sound engine, with a minimal neutral Mat
 **Experimental PR:** https://github.com/N2K02/SEQ/pull/1
 
 ## What SEQ does
-- **SEQ Auto** (default): processes every app's media — phone speaker, headphones, Bluetooth and Android Auto — with an output-mix DynamicsProcessing EQ (31 bands, smart headroom, limiter). It tunes itself to the output, the volume and (with permission) the music. The only other choice is **Pure** (no processing).
-- No music player or library: SEQ improves whatever you already play.
-- Output-mix effects are deprecated by Android but supported on Pixel; another EQ app holding the mix (e.g. Wavelet) takes precedence. Android Auto projection routing must be verified on a head unit/DHU.
+- **SEQ Auto** (default) tunes media routed through a compatible Android output mix. It uses 31-band DynamicsProcessing with headroom and an optional limiter. If the platform rejects that backend, SEQ tries the OEM EQ with cut-only band levels. **Pure** bypasses SEQ processing.
+- On Android 13 and later, SEQ uses Android's predicted media route when available. Wired headphones, Bluetooth, phone speaker and car mode each have their own tuning.
+- The Home screen reports whether Android enabled the effect. Actual processing depends on the device, player and route. Verify wired and wireless Android Auto on a head unit or DHU, including apps that use offload or direct playback.
 
 Both channels use the same **R8-minified release APK**. `main` publishes stable releases; the single experimental branch publishes prereleases. Both require the **same SEQ-specific persistent signing identity**; a mismatched or missing signing secret prevents release publication. See [Release pipeline and one-time signing setup](docs/RELEASE_PIPELINE.md) and [Architecture](docs/ARCHITECTURE.md).
 
@@ -18,7 +18,7 @@ Both channels use the same **R8-minified release APK**. `main` publishes stable 
 
 ## APK testing
 1. Install the experimental APK from PR #1 and turn the engine on (allow notifications and audio analysis).
-2. Play music in any app; Home should show "Media playing • SEQ processing" and what Auto is tuned for.
+2. Play music in any app; Home should show "Output mix effect enabled" and the selected tuning. Compare SEQ Auto and Pure to verify the effect on that route.
 3. Connect Android Auto and play from Spotify/YouTube Music; Home should show "Android Auto".
 4. Compare SEQ Auto and Pure at matched volume; test Quit during playback.
 

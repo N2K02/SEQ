@@ -3,8 +3,8 @@ package com.n2k02.seq.audio
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.DynamicsProcessing
 import android.media.audiofx.Equalizer
-import com.n2k02.seq.model.SystemEqCurve
 import com.n2k02.seq.model.SystemEqCurveBuilder
+import com.n2k02.seq.model.Tone
 import java.io.Closeable
 
 /**
@@ -17,18 +17,34 @@ class SeqSystemEffect private constructor(
   private val equalizer: Equalizer?
 ) : Closeable {
   private val effect: AudioEffect = dynamics ?: equalizer!!
-  val engine: String get() = if (dynamics != null) "31-band precision" else "OEM equalizer"
+  val engine: String get() = if (dynamics != null) "31-band DynamicsProcessing" else "OEM EQ (no limiter)"
   val hasControl: Boolean get() = runCatching { effect.hasControl() }.getOrDefault(false)
 
   companion object {
-    fun create(priority: Int, session: Int, onControl: ((Boolean) -> Unit)? = null): SeqSystemEffect? {
-      val created = runCatching { dynamics(priority, session) }.getOrNull()
-        ?: runCatching { equalizer(priority, session) }.getOrNull()
+    fun open(priority: Int, session: Int, tone: Tone, peakGuard: Boolean, ceilingDb: Float,
+      onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
+      val created = configure(runCatching { dynamics(priority, session) }.getOrNull(),
+        tone, peakGuard, ceilingDb)
+        ?: configure(runCatching { equalizer(priority, session) }.getOrNull(),
+          tone, peakGuard, ceilingDb)
       if (created != null && onControl != null) runCatching {
-        created.effect.setControlStatusListener { _, granted -> onControl(granted) }
+        created.effect.setControlStatusListener { _, granted -> onControl(created, granted) }
       }
       return created
     }
+
+    private fun configure(candidate: SeqSystemEffect?, tone: Tone, peakGuard: Boolean,
+      ceilingDb: Float): SeqSystemEffect? {
+      candidate ?: return null
+      val ready = runCatching {
+        candidate.apply(tone, peakGuard, ceilingDb)
+        candidate.enable()
+      }.getOrDefault(false)
+      if (ready) return candidate
+      candidate.close()
+      return null
+    }
+
     private fun dynamics(priority: Int, session: Int): SeqSystemEffect? {
       val config = DynamicsProcessing.Config.Builder(
         DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, 2,
@@ -45,35 +61,46 @@ class SeqSystemEffect private constructor(
     }
   }
 
-  fun apply(curve: SystemEqCurve, peakGuard: Boolean, ceilingDb: Float) {
+  private data class Tuning(val tone: Tone, val peakGuard: Boolean, val ceilingDb: Float)
+  private var tuning: Tuning? = null
+
+  fun apply(tone: Tone, peakGuard: Boolean, ceilingDb: Float) {
+    val next = Tuning(tone, peakGuard, ceilingDb)
+    if (next == tuning) return
+    program(next)
+    tuning = next
+  }
+
+  fun invalidateTuning() { tuning = null }
+
+  private fun program(tuning: Tuning) {
     dynamics?.let { dp ->
+      val curve = SystemEqCurveBuilder.build(tuning.tone, null, limiter = tuning.peakGuard)
       val eq = DynamicsProcessing.Eq(true, true, curve.bands.size)
       curve.bands.forEachIndexed { i, b ->
         eq.setBand(i, DynamicsProcessing.EqBand(true, b.cutoffHz, b.gainDb))
       }
       dp.setPreEqAllChannelsTo(eq)
       dp.setInputGainAllChannelsTo(curve.inputGainDb)
-      dp.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, peakGuard, 0,
-        1f, 60f, 10f, ceilingDb.coerceIn(-12f, -0.1f), 0f))
+      dp.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, tuning.peakGuard, 0,
+        1f, 60f, 10f, tuning.ceilingDb.coerceIn(-12f, -0.1f), 0f))
       return
     }
     equalizer?.let { eq ->
       val range = eq.bandLevelRange
-      for (i in 0 until eq.numberOfBands.toInt()) {
-        val hz = eq.getCenterFreq(i.toShort()) / 1000f
-        val mb = (curve.levelAt(hz) * 100f).toInt()
-          .coerceIn(range[0].toInt(), range[1].toInt()).toShort()
-        eq.setBandLevel(i.toShort(), mb)
-      }
+      val centres = List(eq.numberOfBands.toInt()) { eq.getCenterFreq(it.toShort()) / 1000f }
+      check(centres.isNotEmpty() && range[0] <= 0 && range[1] >= 0)
+      SystemEqCurveBuilder.oemLevels(tuning.tone, centres, range[0].toInt()..range[1].toInt())
+        .forEachIndexed { i, level -> eq.setBandLevel(i.toShort(), level) }
     }
   }
 
-  fun setEnabled(on: Boolean): Boolean = runCatching {
-    effect.setEnabled(on) == AudioEffect.SUCCESS && effect.enabled == on
+  fun enable(): Boolean = runCatching {
+    effect.enabled || (effect.setEnabled(true) == AudioEffect.SUCCESS && effect.enabled)
   }.getOrDefault(false)
 
   override fun close() {
-    runCatching { effect.setEnabled(false) }
+    if (hasControl) runCatching { effect.setEnabled(false) }
     runCatching { effect.release() }
   }
 }

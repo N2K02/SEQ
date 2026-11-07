@@ -20,13 +20,11 @@ import com.n2k02.seq.MainActivity
 import com.n2k02.seq.model.AudioProfile
 import com.n2k02.seq.model.EngineSettings
 import com.n2k02.seq.model.SettingsStore
-import com.n2k02.seq.model.SystemEqCurveBuilder
 
 /**
  * User-started foreground engine service.
- * All-media mode (default): drives the output-mix effect ([SeqGlobalEffect]) so every app's
- * media — phone speaker, headphones and Android Auto — is processed, re-applying on route,
- * car-mode and settings changes.
+ * All-media mode (default): drives the output-mix effect ([SeqGlobalEffect]) and
+ * updates its tuning on route, car-mode and settings changes.
  * Per-app mode: attaches to positive session IDs announced by Android's opt-in
  * OPEN/CLOSE control broadcasts only.
  */
@@ -111,7 +109,7 @@ class SeqEngineService : Service() {
       this, 0, Intent(this, MainActivity::class.java),
       PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
     )
-    val text = if (settings.read().allMedia) "Processing all media • phone and Android Auto"
+    val text = if (settings.read().allMedia) "All media • Android output mix"
       else "Processing compatible apps"
     return Notification.Builder(this, CHANNEL)
       .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle("SEQ")
@@ -121,32 +119,20 @@ class SeqEngineService : Service() {
   private fun attach(id: Int) {
     val s = settings.read()
     if (!SessionPolicy.canAttach(s, id, effects.containsKey(id))) return
-    val effect = SeqSystemEffect.create(0, id)
+    val car = SeqRoute.isCar(this, s)
+    val effect = SeqSystemEffect.open(0, id, SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb)
     if (effect == null) {
-      SeqRuntime.log("Session effect unavailable (control denied)")
+      SeqRuntime.log("Session effect unavailable")
       report("Audio effect unavailable")
       return
     }
-    try {
-      apply(effect, s)
-      if (!effect.setEnabled(true)) {
-        effect.close()
-        SeqRuntime.log("Session effect could not be enabled")
-        return
-      }
-      effects[id] = effect
-      SeqRuntime.log("Effect attached to compatible session (" + effect.engine + ")")
-      report("Audio session attached")
-    } catch (e: Exception) {
-      effect.close()
-      SeqRuntime.log("Attach failed: " + e.javaClass.simpleName)
-      report("Audio effect unavailable")
-    }
+    effects[id] = effect
+    SeqRuntime.log("Effect attached to compatible session (" + effect.engine + ")")
+    report("Audio session attached")
   }
   private fun apply(effect: SeqSystemEffect, s: EngineSettings) {
     val car = SeqRoute.isCar(this, s)
-    effect.apply(SystemEqCurveBuilder.build(SeqRoute.tone(this, s, car), null,
-      limiter = s.peakGuard), s.peakGuard, s.peakCeilingDb)
+    effect.apply(SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb)
   }
   private fun detach(id: Int) {
     effects.remove(id)?.close()

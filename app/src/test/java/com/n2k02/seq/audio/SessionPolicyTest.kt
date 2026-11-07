@@ -46,4 +46,12 @@ class SessionPolicyTest {
     assertEquals(RouteKind.BLUETOOTH, RoutePolicy.kind(false, listOf(speaker, bt)))
     assertEquals(RouteKind.SPEAKER, RoutePolicy.kind(false, listOf(speaker)))
   }
+  @Test fun mediaRouteTakesPrecedenceOverConnectedHeadphones() {
+    val speaker = android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+    val wired = android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+    val routed = RoutePolicy.mediaOutputs(listOf(speaker)) { error("Connected devices are only a fallback") }
+    assertEquals(RouteKind.SPEAKER, RoutePolicy.kind(false, routed))
+    assertEquals(RouteKind.WIRED,
+      RoutePolicy.kind(false, RoutePolicy.mediaOutputs(emptyList()) { listOf(speaker, wired) }))
+  }
 }
