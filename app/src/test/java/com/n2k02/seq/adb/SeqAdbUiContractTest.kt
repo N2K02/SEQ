@@ -29,9 +29,12 @@ class SeqAdbUiContractTest {
    assertEquals(5,Regex("AdbSettingToggle\\(\"").findAll(diagnostics).count())
    listOf("Permissions","Automatic connection","SEQ audio diagnostics",
      "Show discovered ports","Inspect audio","Retry","Open Wireless debugging",
-     "Disable TCP/5555","OutlinedTextField","Enter pairing code").forEach {
+     "OutlinedTextField","Enter pairing code").forEach {
      assertFalse("Unexpected manual or extra control: $it",diagnostics.contains(it))
    }
+   assertTrue(diagnostics.contains("if (status.connected && status.uidVerified && status.lastVerifiedPort == 5555)"))
+   assertTrue(diagnostics.contains("adb.disconnectTcp()"))
+   assertTrue(diagnostics.contains("Disable TCP/5555"))
    assertTrue(diagnostics.contains("SeqPairingAccessibilityService.isEnabled(context)"))
    assertTrue(ui.contains("permissionRevision++"))
    assertFalse(ui.contains("Page.LOGS"))
