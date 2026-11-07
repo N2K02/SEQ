@@ -62,7 +62,7 @@ object SeqAdaptiveAnalyzer {
     val ctx = context.applicationContext
     app = ctx
     val s = SettingsStore(ctx).read()
-    val want = mediaActive && s.enabled && s.adaptive &&
+    val want = mediaActive && s.enabled && s.adaptive && s.manualBands == null &&
       s.profile == com.n2k02.seq.model.AudioProfile.AUTO && permitted(ctx)
     if (!want) { stop(); return }
     if (visualizer != null) return

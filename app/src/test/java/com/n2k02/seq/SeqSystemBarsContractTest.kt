@@ -15,10 +15,10 @@ class SeqSystemBarsContractTest {
   }
   @Test fun topHeaderRespectsStatusBarOnEveryPage() {
     val activity=source("MainActivity.kt")
-    assertTrue(activity.contains("enableEdgeToEdge()"))
+    assertTrue(activity.contains("enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark("))
     assertTrue(activity.contains("topBar = { Header(page.title, pageIcon(page)) }"))
     val header=activity.substringAfter("@Composable private fun Header(")
-      .substringBefore("@Composable private fun SurfaceCard(")
+      .substringBefore("@Composable private fun MenuRow(")
     assertTrue(header.contains(".statusBarsPadding()"))
     assertTrue(header.indexOf(".statusBarsPadding()") < header.indexOf(".padding(horizontal"))
     assertEquals(1,Regex("""@Composable private fun Header\(""").findAll(activity).count())

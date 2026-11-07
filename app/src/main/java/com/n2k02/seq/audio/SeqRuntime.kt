@@ -12,7 +12,8 @@ data class EngineStatus(
   val effectAttached: Boolean = false,
   /** Output-mix effect active: every app's media, incl. Android Auto, is processed. */
   val globalActive: Boolean = false,
-  val effectEngine: String = ""
+  val effectEngine: String = "",
+  val limiterAvailable: Boolean = false
 ) {
   val processing: Boolean get() = effectAttached || globalActive
 }
@@ -30,6 +31,7 @@ object SeqRuntime {
   fun reset() {
     val s = status.value
     status.value = EngineStatus(globalActive = s.globalActive, effectEngine = s.effectEngine,
+      limiterAvailable = s.limiterAvailable,
       carProfileActive = s.carProfileActive, route = s.route,
       lastEvent = if (s.globalActive) s.lastEvent else "Engine off")
     log("Session effects released")

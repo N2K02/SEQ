@@ -18,15 +18,16 @@ class SeqSystemEffect private constructor(
 ) : Closeable {
   private val effect: AudioEffect = dynamics ?: equalizer!!
   val engine: String get() = if (dynamics != null) "31-band DynamicsProcessing" else "OEM EQ (no limiter)"
+  val limiterAvailable: Boolean get() = dynamics != null
   val hasControl: Boolean get() = runCatching { effect.hasControl() }.getOrDefault(false)
 
   companion object {
     fun open(priority: Int, session: Int, tone: Tone, peakGuard: Boolean, ceilingDb: Float,
-      onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
+      manualBands: List<Float>?, onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
       val created = configure(runCatching { dynamics(priority, session) }.getOrNull(),
-        tone, peakGuard, ceilingDb)
+        tone, peakGuard, ceilingDb, manualBands)
         ?: configure(runCatching { equalizer(priority, session) }.getOrNull(),
-          tone, peakGuard, ceilingDb)
+          tone, peakGuard, ceilingDb, manualBands)
       if (created != null && onControl != null) runCatching {
         created.effect.setControlStatusListener { _, granted -> onControl(created, granted) }
       }
@@ -34,10 +35,10 @@ class SeqSystemEffect private constructor(
     }
 
     private fun configure(candidate: SeqSystemEffect?, tone: Tone, peakGuard: Boolean,
-      ceilingDb: Float): SeqSystemEffect? {
+      ceilingDb: Float, manualBands: List<Float>?): SeqSystemEffect? {
       candidate ?: return null
       val ready = runCatching {
-        candidate.apply(tone, peakGuard, ceilingDb)
+        candidate.apply(tone, peakGuard, ceilingDb, manualBands)
         candidate.enable()
       }.getOrDefault(false)
       if (ready) return candidate
@@ -61,11 +62,12 @@ class SeqSystemEffect private constructor(
     }
   }
 
-  private data class Tuning(val tone: Tone, val peakGuard: Boolean, val ceilingDb: Float)
+  private data class Tuning(val tone: Tone, val peakGuard: Boolean, val ceilingDb: Float,
+    val manualBands: List<Float>?)
   private var tuning: Tuning? = null
 
-  fun apply(tone: Tone, peakGuard: Boolean, ceilingDb: Float) {
-    val next = Tuning(tone, peakGuard, ceilingDb)
+  fun apply(tone: Tone, peakGuard: Boolean, ceilingDb: Float, manualBands: List<Float>?) {
+    val next = Tuning(if (manualBands == null) tone else Tone(), peakGuard, ceilingDb, manualBands)
     if (next == tuning) return
     program(next)
     tuning = next
@@ -74,8 +76,9 @@ class SeqSystemEffect private constructor(
   fun invalidateTuning() { tuning = null }
 
   private fun program(tuning: Tuning) {
+    val manual = tuning.manualBands?.let(SystemEqCurveBuilder::manual)
     dynamics?.let { dp ->
-      val curve = SystemEqCurveBuilder.build(tuning.tone, null, limiter = tuning.peakGuard)
+      val curve = manual ?: SystemEqCurveBuilder.build(tuning.tone, null, limiter = tuning.peakGuard)
       val eq = DynamicsProcessing.Eq(true, true, curve.bands.size)
       curve.bands.forEachIndexed { i, b ->
         eq.setBand(i, DynamicsProcessing.EqBand(true, b.cutoffHz, b.gainDb))
@@ -90,7 +93,7 @@ class SeqSystemEffect private constructor(
       val range = eq.bandLevelRange
       val centres = List(eq.numberOfBands.toInt()) { eq.getCenterFreq(it.toShort()) / 1000f }
       check(centres.isNotEmpty() && range[0] <= 0 && range[1] >= 0)
-      SystemEqCurveBuilder.oemLevels(tuning.tone, centres, range[0].toInt()..range[1].toInt())
+      SystemEqCurveBuilder.oemLevels(tuning.tone, centres, range[0].toInt()..range[1].toInt(), manual)
         .forEachIndexed { i, level -> eq.setBandLevel(i.toShort(), level) }
     }
   }

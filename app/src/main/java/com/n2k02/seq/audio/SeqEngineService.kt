@@ -120,7 +120,7 @@ class SeqEngineService : Service() {
     val s = settings.read()
     if (!SessionPolicy.canAttach(s, id, effects.containsKey(id))) return
     val car = SeqRoute.isCar(this, s)
-    val effect = SeqSystemEffect.open(0, id, SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb)
+    val effect = SeqSystemEffect.open(0, id, SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb, s.manualBands)
     if (effect == null) {
       SeqRuntime.log("Session effect unavailable")
       report("Audio effect unavailable")
@@ -132,7 +132,7 @@ class SeqEngineService : Service() {
   }
   private fun apply(effect: SeqSystemEffect, s: EngineSettings) {
     val car = SeqRoute.isCar(this, s)
-    effect.apply(SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb)
+    effect.apply(SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb, s.manualBands)
   }
   private fun detach(id: Int) {
     effects.remove(id)?.close()

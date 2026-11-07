@@ -22,4 +22,11 @@ class SeqLightweightUiContractTest {
     assertFalse(source.contains("Page.LOGS"))
     assertFalse(source.contains("Page.ABOUT"))
   }
+  @Test fun quitMatchesMradioAndStillShutsDownTheEngine() {
+    val quit = source.substringAfter("NavigationBarItem(selected = false").substringBefore("label = { Text(\"Quit\") }")
+    assertTrue(quit.contains("Icons.Rounded.PowerSettingsNew"))
+    assertTrue(quit.contains("update(settings.copy(enabled = false))"))
+    assertTrue(quit.contains("adb.shutdown()"))
+    assertTrue(quit.contains("finishAffinity()"))
+  }
 }

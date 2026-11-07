@@ -43,12 +43,31 @@ object SystemEqCurveBuilder {
     val headroom = maxOf(if (limiter) boost * 0.5 else boost, preamp).coerceIn(0.0, 24.0)
     return SystemEqCurve(round2(-headroom) + 0f, bands)
   }
+  const val MANUAL_LIMIT_DB = 6f
+
+  fun parseManual(text: String?): List<Float>? {
+    if (text == null) return null
+    val bands = text.split(',')
+    if (bands.size != BAND_COUNT) return null
+    val gains = bands.map { it.toFloatOrNull() ?: return null }
+    return gains.takeIf { it.all { gain -> gain in -MANUAL_LIMIT_DB..MANUAL_LIMIT_DB } }
+  }
+
+  fun manual(gains: List<Float>): SystemEqCurve {
+    require(gains.size == BAND_COUNT && gains.all { it in -MANUAL_LIMIT_DB..MANUAL_LIMIT_DB })
+    val bands = gains.mapIndexed { i, gain -> SystemEqBand(cutoffHz(i).toFloat(), gain) }
+    return SystemEqCurve(-gains.max().coerceAtLeast(0f) + 0f, bands)
+  }
+
   /**
    * OEM Equalizer has no separate input gain or limiter. Shift its entire curve down and
    * retain cuts where the hardware range allows. The programmed bands never add gain.
    */
-  fun oemLevels(tone: Tone, centreHz: List<Float>, range: IntRange): List<Short> {
-    val gains = centreHz.map { EqResponse.totalDb(it.toDouble(), tone, null) }
+  fun oemLevels(tone: Tone, centreHz: List<Float>, range: IntRange,
+    manual: SystemEqCurve? = null): List<Short> {
+    val gains = centreHz.map { hz ->
+      manual?.levelAt(hz)?.toDouble() ?: EqResponse.totalDb(hz.toDouble(), tone, null)
+    }
     val headroom = (gains.maxOrNull() ?: 0.0).coerceAtLeast(0.0)
     return gains.map { ((it - headroom) * 100).roundToInt().coerceIn(range).toShort() }
   }

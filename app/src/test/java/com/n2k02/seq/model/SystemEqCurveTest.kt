@@ -47,6 +47,27 @@ class SystemEqCurveTest {
       SystemEqCurveBuilder.oemLevels(Tone(bass = 9f), centres, range))
   }
 
+  @Test fun manualGainsRoundTripAndPreserveHeadroom() {
+    val gains = List(SystemEqCurveBuilder.BAND_COUNT) { if (it == 0) 6f else -2f }
+    val restored = SystemEqCurveBuilder.parseManual(gains.joinToString(","))
+    assertEquals(gains, restored)
+    val curve = SystemEqCurveBuilder.manual(checkNotNull(restored))
+    assertEquals(-6f, curve.inputGainDb, 0f)
+    assertEquals(0f, curve.levelAt(20f), 0f)
+    assertEquals(-8f, curve.levelAt(1000f), 0f)
+    assertEquals(listOf<Short>(0, -800),
+      SystemEqCurveBuilder.oemLevels(Tone(), listOf(20f, 1000f), -1500..1500, curve))
+  }
+
+  @Test fun invalidStoredManualCurvesFallBackToAuto() {
+    assertNull(SystemEqCurveBuilder.parseManual(null))
+    assertNull(SystemEqCurveBuilder.parseManual("0,0"))
+    for (bad in listOf("NaN", "Infinity", "6.5", "invalid", "")) {
+      val bands = List(SystemEqCurveBuilder.BAND_COUNT) { if (it == 0) bad else "0" }
+      assertNull(SystemEqCurveBuilder.parseManual(bands.joinToString(",")))
+    }
+  }
+
   @Test fun presetPreampIsHonoured() {
     val p = HeadphoneProfile("x", -7.0, listOf(EqFilter(FilterKind.PEAK, 1000.0, 3.0, 1.0)))
     assertEquals(-7f, SystemEqCurveBuilder.build(Tone(), p).inputGainDb, 0.01f)

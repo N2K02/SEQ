@@ -16,7 +16,8 @@ data class EngineSettings(
   /** Limiter ceiling (dBFS). */
   val peakCeilingDb: Float = -1.0f,
   val allMedia: Boolean = true,
-  val loudness: Boolean = true
+  val loudness: Boolean = true,
+  val manualBands: List<Float>? = null
 )
 
 /**

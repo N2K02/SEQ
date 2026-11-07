@@ -29,7 +29,7 @@ object SeqGlobalEffect {
       val car = SeqRoute.isCar(ctx, s)
       val tone = SeqRoute.tone(ctx, s, car)
       val current = effect ?: SeqSystemEffect.open(PRIORITY, OUTPUT_MIX, tone, s.peakGuard,
-        s.peakCeilingDb, ::onControl)?.also {
+        s.peakCeilingDb, s.manualBands, ::onControl)?.also {
         effect = it
         SeqRuntime.log("Output mix effect attached (" + it.engine + ")")
       }
@@ -41,7 +41,7 @@ object SeqGlobalEffect {
         publish(false, "", "Another audio effect app has control", car, SeqRoute.describe(ctx, car))
         return
       }
-      current.apply(tone, s.peakGuard, s.peakCeilingDb)
+      current.apply(tone, s.peakGuard, s.peakCeilingDb, s.manualBands)
       if (!current.enable()) {
         release("Output mix effect could not be enabled")
         return
@@ -75,6 +75,7 @@ object SeqGlobalEffect {
     car: Boolean? = null, route: String? = null) {
     val s = SeqRuntime.status.value
     SeqRuntime.status.value = s.copy(globalActive = active, effectEngine = engine,
+      limiterAvailable = active && effect?.limiterAvailable == true,
       lastEvent = event, carProfileActive = car ?: s.carProfileActive, route = route ?: s.route)
   }
 }
