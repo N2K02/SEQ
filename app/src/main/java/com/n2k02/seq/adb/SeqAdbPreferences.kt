@@ -44,7 +44,16 @@ class SeqAdbPreferences(context: Context) {
   fun markRestoreAttempted(boot:Int) {
     if(boot>=0) prefs.edit().putInt("restore_attempt_boot",boot).apply()
   }
-  fun markUserOpened() { manuallyStopped=false }
+  /** A launch permits recovery this boot even when automatic boot startup is disabled. */
+  fun markUserOpened() {
+    val current = currentBoot
+    prefs.edit().putBoolean("manual_quit", false).apply()
+    if (current >= 0) prefs.edit().putInt("foreground_boot", current).apply()
+  }
+  val backgroundRecoveryAllowed: Boolean
+    get() = !manuallyStopped && SeqAdbStartupPolicy.mayRecover(
+      startOnBoot, currentBoot, prefs.getInt("foreground_boot", -1)
+    )
   val previouslyAuthorized:Boolean get()=prefs.getBoolean("previously_authorized",false)
   val lastVerifiedAt:Long get()=prefs.getLong("verified_at",0L)
   val lastVerifiedTransport:String get()=prefs.getString("verified_transport","None") ?: "None"
@@ -95,4 +104,10 @@ object AdbAutoPolicy {
     }
     return endpoints.distinct()
   }
+}
+
+/** Start-on-boot is not a master disable for recovery after a real foreground launch. */
+internal object SeqAdbStartupPolicy {
+  fun mayRecover(startOnBoot:Boolean, currentBoot:Int, foregroundBoot:Int):Boolean =
+    startOnBoot || (currentBoot>=0 && foregroundBoot==currentBoot)
 }
