@@ -24,8 +24,9 @@ class SeqAdbRecoveryWorker(context:Context,params:WorkerParameters):
     val app=applicationContext
     val p=SeqAdbPreferences(app)
     val bootRecovery=inputData.getBoolean("boot_recovery",false)
-    if(p.manuallyStopped || !p.automatic || !p.startOnBoot ||
-      !p.previouslyAuthorized || (!bootRecovery && !p.watchdog)) return Result.success()
+    if(!p.backgroundRecoveryAllowed || !p.automatic ||
+      !p.previouslyAuthorized || (bootRecovery && !p.startOnBoot) ||
+      (!bootRecovery && !p.watchdog)) return Result.success()
     try {
       if(p.restoreAfterRestart) restoreIfEligible(app,p)
       if(LocalAdbDiagnostics.active?.isPageActive()==true) return Result.success()
@@ -53,7 +54,7 @@ class SeqAdbRecoveryWorker(context:Context,params:WorkerParameters):
       val app=context.applicationContext
       val p=SeqAdbPreferences(app)
       val wm=WorkManager.getInstance(app)
-      if(!p.manuallyStopped && p.startOnBoot && p.watchdog && p.automatic &&
+      if(p.backgroundRecoveryAllowed && p.watchdog && p.automatic &&
         p.previouslyAuthorized) {
         val req=PeriodicWorkRequestBuilder<SeqAdbRecoveryWorker>(15,TimeUnit.MINUTES).build()
         wm.enqueueUniquePeriodicWork(WATCHDOG,ExistingPeriodicWorkPolicy.KEEP,req)
