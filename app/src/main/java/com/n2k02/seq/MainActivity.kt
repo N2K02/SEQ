@@ -193,6 +193,19 @@ class MainActivity : ComponentActivity() {
               verticalArrangement = Arrangement.spacedBy(12.dp)) {
               when (page) {
                 Page.HOME -> {
+                  // Shared ADB owns discovery, automatic pairing and reconnect
+                  // while Home is visible; SEQ DSP remains independent.
+                  dev.n2k02.adb.core.AdbPageLifecycle(adb.sharedCore)
+                  val adbState by adb.sharedCore.state.collectAsState()
+                  if (!adbState.connected) {
+                    dev.n2k02.adb.core.AdbHomeSetupPage(
+                      adb = adb.sharedCore,
+                      accessibilityEnabled = com.n2k02.seq.adb.SeqPairingAccessibilityService.isEnabled(this@MainActivity),
+                      onOpenAccessibility = {
+                        startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                      }
+                    )
+                  }
                   AudioCard {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                       Column(Modifier.weight(1f)) {

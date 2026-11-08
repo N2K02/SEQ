@@ -26,7 +26,8 @@ class SeqLightweightUiContractTest {
     val quit = source.substringAfter("NavigationBarItem(selected = false").substringBefore("label = { Text(\"Quit\") }")
     assertTrue(quit.contains("Icons.Rounded.PowerSettingsNew"))
     assertTrue(quit.contains("update(settings.copy(enabled = false))"))
-    assertTrue(quit.contains("adb.shutdown()"))
+    assertTrue(quit.contains("adb.shutdownAndAwait()"))
+    assertTrue(quit.indexOf("adb.shutdownAndAwait()") < quit.indexOf("finishAffinity()"))
     assertTrue(quit.contains("finishAffinity()"))
   }
 }
