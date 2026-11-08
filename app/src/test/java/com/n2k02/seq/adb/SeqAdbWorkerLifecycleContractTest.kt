@@ -23,6 +23,15 @@ class SeqAdbWorkerLifecycleContractTest {
    assertTrue(worker.contains("SeqRuntime.log("))
    assertTrue(worker.contains("recovery failed: "))
  }
+ @Test fun periodicRecoveryDoesNotDependOnBootStartupSetting() {
+   val worker=source("SeqAdbRecoveryWorker.kt")
+   assertTrue(worker.contains("!p.backgroundRecoveryAllowed"))
+   assertTrue(worker.contains("(bootRecovery && !p.startOnBoot)"))
+   assertTrue(worker.contains("if(p.backgroundRecoveryAllowed && p.watchdog"))
+   val prefs=source("SeqAdbPreferences.kt")
+   assertTrue(prefs.contains("foreground_boot"))
+   assertTrue(prefs.contains("SeqAdbStartupPolicy.mayRecover("))
+ }
  @Test fun workerCannotDisconnectForegroundOwnerOnCompletion() {
    val client=source("LocalAdbDiagnostics.kt")
    val cleanup=client.substringAfter("suspend fun recoverOnceForWorker()")
