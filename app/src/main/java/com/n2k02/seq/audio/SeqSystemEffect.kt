@@ -3,6 +3,8 @@ package com.n2k02.seq.audio
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.DynamicsProcessing
 import android.media.audiofx.Equalizer
+import android.os.Handler
+import android.os.Looper
 import com.n2k02.seq.model.SystemEqCurve
 import com.n2k02.seq.model.SystemEqCurveBuilder
 import com.n2k02.seq.model.Tone
@@ -70,6 +72,11 @@ class SeqSystemEffect private constructor(
     val manualBands: List<Float>?, val bassDb: Float, val preampDb: Float)
   private var tuning: Tuning? = null
   private var programmedCurve: SystemEqCurve? = null
+  private val main = Handler(Looper.getMainLooper())
+  private var pending: Runnable? = null
+  private var lastOemLevels: List<Short>? = null
+  private var closed = false
+  private fun cancelTransition() { pending?.let(main::removeCallbacks); pending = null }
   var response: List<Float>? = null
     private set
 
@@ -82,36 +89,54 @@ class SeqSystemEffect private constructor(
   }
 
   fun invalidateTuning() {
+    cancelTransition()
     tuning = null
     programmedCurve = null
   }
 
+  /** Animate filter changes over 200 ms without blocking the playback thread. */
   private fun program(tuning: Tuning) {
+    cancelTransition()
     dynamics?.let { dp ->
-      val curve = SystemEqCurveBuilder.configured(tuning.tone, tuning.manualBands, tuning.bassDb,
+      val target = SystemEqCurveBuilder.configured(tuning.tone, tuning.manualBands, tuning.bassDb,
         tuning.preampDb, allowBoost = tuning.peakGuard)
-      val previous = programmedCurve
-      val bandsChanged = previous?.bands != curve.bands
-      val previousTuning = this.tuning
-      val limiterChanged = previousTuning?.peakGuard != tuning.peakGuard ||
-        previousTuning?.ceilingDb != tuning.ceilingDb
-      val interimGain = if (bandsChanged) SystemEqCurveBuilder.transitionGain(previous, curve)
-        else minOf(checkNotNull(previous).inputGainDb, curve.inputGainDb)
-      if (previous?.inputGainDb != interimGain) dp.setInputGainAllChannelsTo(interimGain)
-      if (limiterChanged) {
+      val old = programmedCurve
+      val prior = this.tuning
+      if (prior?.peakGuard != tuning.peakGuard || prior.ceilingDb != tuning.ceilingDb) {
         dp.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, tuning.peakGuard, 0,
           1f, 60f, 10f, tuning.ceilingDb.coerceIn(-12f, -0.1f), 0f))
       }
-      if (bandsChanged) {
-        val eq = DynamicsProcessing.Eq(true, true, curve.bands.size)
-        curve.bands.forEachIndexed { i, band ->
-          eq.setBand(i, DynamicsProcessing.EqBand(true, band.cutoffHz, band.gainDb))
-        }
-        dp.setPreEqAllChannelsTo(eq)
+      if (old == null || old.bands.size != target.bands.size) {
+        programCurve(dp, target)
+        programmedCurve = target
+        response = target.bands.map { it.gainDb + target.inputGainDb }
+        return
       }
-      if (interimGain != curve.inputGainDb) dp.setInputGainAllChannelsTo(curve.inputGainDb)
-      programmedCurve = curve
-      response = curve.bands.map { it.gainDb + curve.inputGainDb }
+      if (old == target) return
+      var step = 0
+      val tick = object : Runnable {
+        override fun run() {
+          if (closed || !hasControl) { pending = null; return }
+          step++
+          val fraction = step / 10f
+          val curve = SystemEqCurve(
+            old.inputGainDb + (target.inputGainDb - old.inputGainDb) * fraction,
+            old.bands.zip(target.bands) { a, b ->
+              a.copy(gainDb = a.gainDb + (b.gainDb - a.gainDb) * fraction)
+            }
+          )
+          val success = runCatching {
+            programCurve(dp, curve)
+            programmedCurve = curve
+            response = curve.bands.map { it.gainDb + curve.inputGainDb }
+          }.isSuccess
+          if (!success) { invalidateTuning(); return }
+          if (step < 10) { pending = this; main.postDelayed(this, 20L) }
+          else { pending = null; programmedCurve = target }
+        }
+      }
+      pending = tick
+      main.post(tick)
       return
     }
     equalizer?.let { eq ->
@@ -123,10 +148,50 @@ class SeqSystemEffect private constructor(
         val base = manual ?: SystemEqCurveBuilder.build(tuning.tone, null)
         SystemEqCurveBuilder.withOutputControls(base, tuning.bassDb, tuning.preampDb, allowBoost = false)
       } else manual
-      val levels = SystemEqCurveBuilder.oemLevels(tuning.tone, centres, range[0].toInt()..range[1].toInt(), adjusted)
-      levels.forEachIndexed { i, level -> eq.setBandLevel(i.toShort(), level) }
-      response = levels.map { it / 100f }
+      val target = SystemEqCurveBuilder.oemLevels(tuning.tone, centres,
+        range[0].toInt()..range[1].toInt(), adjusted)
+      val before = lastOemLevels
+      if (before == null || before.size != target.size) {
+        target.forEachIndexed { i, level -> eq.setBandLevel(i.toShort(), level) }
+        lastOemLevels = target
+        response = target.map { it / 100f }
+        return
+      }
+      if (target == before) return
+      var step = 0
+      val tick = object : Runnable {
+        override fun run() {
+          if (closed || !hasControl) { pending = null; return }
+          step++
+          val fraction = step / 10f
+          val current = before.zip(target) { a, b ->
+            (a.toFloat() + (b - a) * fraction).toInt().toShort()
+          }
+          val success = runCatching {
+            current.forEachIndexed { i, level -> eq.setBandLevel(i.toShort(), level) }
+            lastOemLevels = current
+            response = current.map { it / 100f }
+          }.isSuccess
+          if (!success) { invalidateTuning(); return }
+          if (step < 10) { pending = this; main.postDelayed(this, 20L) }
+          else { pending = null; lastOemLevels = target }
+        }
+      }
+      pending = tick
+      main.post(tick)
     }
+  }
+
+  private fun programCurve(dp: DynamicsProcessing, curve: SystemEqCurve) {
+    // Lower gain before replacing the bands; restore only after the new curve is live.
+    val interim = SystemEqCurveBuilder.transitionGain(programmedCurve, curve)
+    if (programmedCurve?.inputGainDb != interim) dp.setInputGainAllChannelsTo(interim)
+    val eq = DynamicsProcessing.Eq(true, true, curve.bands.size)
+    curve.bands.forEachIndexed { i, band ->
+      eq.setBand(i, DynamicsProcessing.EqBand(true, band.cutoffHz, band.gainDb))
+    }
+    dp.setPreEqAllChannelsTo(eq)
+    if (interim != curve.inputGainDb) dp.setInputGainAllChannelsTo(curve.inputGainDb)
   }
 
   fun bypass(): Boolean = runCatching {
@@ -138,6 +203,8 @@ class SeqSystemEffect private constructor(
   }.getOrDefault(false)
 
   override fun close() {
+    closed = true
+    cancelTransition()
     if (hasControl) runCatching { effect.setEnabled(false) }
     runCatching { effect.release() }
   }
