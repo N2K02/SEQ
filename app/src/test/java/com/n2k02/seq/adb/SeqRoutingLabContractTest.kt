@@ -14,7 +14,7 @@ class SeqRoutingLabContractTest {
   @Test fun onlyReadOnlyRoutingCommandIsExposed() {
     val adb = source("adb/LocalAdbDiagnostics.kt")
     val line = adb.substringAfter("const val ROUTING_PROBE =")
-      .substringBefore("\n").trim()
+      .trimStart().substringBefore("\n").trim()
     assertTrue(line.contains("id -u"))
     assertTrue(line.contains("dumpsys media.audio_policy"))
     listOf("setprop", "settings put", "appops set", "pm grant", "cmd audio set",
