@@ -39,7 +39,7 @@ class SeqAdbWorkerLifecycleContractTest {
    assertFalse(enter.contains("preferences.markUserOpened()"))
    val activity=listOf(File("app/src/main/java/com/n2k02/seq/MainActivity.kt"),
      File("../app/src/main/java/com/n2k02/seq/MainActivity.kt")).first { it.isFile }.readText()
-   assertTrue(activity.contains("adb.preferences.markUserOpened()"))
+   assertTrue(activity.contains("if (savedInstanceState == null) adb.preferences.markUserOpened()"))
  }
  @Test fun noParallelDiscoveryOrWatchdogInSeqFacade() {
    val client=source("LocalAdbDiagnostics.kt")
