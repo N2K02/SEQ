@@ -9,12 +9,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.n2k02.seq.model.*
+import com.n2k02.seq.adb.LocalAdbDiagnostics
+import com.n2k02.seq.audio.SeqRuntime
 import java.util.Locale
 
 /** Live correction is computed into the 31-band platform response; not native sample-level PEQ. */
 @Composable
 internal fun AdvancedAudioScreen(route: RouteKind, active: Boolean, correction: HeadphoneProfile?,
-  onSave: (HeadphoneProfile?) -> Unit) {
+  adb: LocalAdbDiagnostics, onSave: (HeadphoneProfile?) -> Unit) {
   var name by rememberSaveable(route) { mutableStateOf(correction?.name ?: "Custom headphone") }
   var text by rememberSaveable(route) { mutableStateOf("") }
   var error by rememberSaveable(route) { mutableStateOf("") }
@@ -80,6 +82,21 @@ internal fun AdvancedAudioScreen(route: RouteKind, active: Boolean, correction: 
     }
   }
   if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
+  val routingReport by adb.routingProbe.collectAsState()
+  var logRevision by remember { mutableIntStateOf(0) }
+  AudioCard {
+    Text("Experimental routing lab", style = MaterialTheme.typography.titleMedium)
+    Text("Read-only ADB probe; no audio routing changes, capture, or repeated polling.",
+      style = MaterialTheme.typography.bodySmall)
+    Button(onClick = { adb.inspectRouting(); logRevision++ },
+      modifier = Modifier.fillMaxWidth()) { Text("Probe audio routing (ADB)") }
+    Text(routingReport, style = MaterialTheme.typography.bodySmall)
+    Text("A remote-submix hint is not proof of exclusive routing. PCM replay remains disabled for other apps.",
+      style = MaterialTheme.typography.bodySmall)
+    TextButton(onClick = { logRevision++ }) { Text("Refresh audio logs") }
+    val logs = remember(logRevision, routingReport) { SeqRuntime.logs().takeLast(16) }
+    logs.forEach { Text(it, style = MaterialTheme.typography.labelSmall) }
+  }
   AudioCard {
     Text("Advanced PCM processing", style = MaterialTheme.typography.titleMedium)
     Text("Convolution and sample-accurate true-peak limiting require an actual PCM stream. " +

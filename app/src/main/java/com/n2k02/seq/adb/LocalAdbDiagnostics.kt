@@ -39,6 +39,9 @@ object AdbAccessPolicy {
     fun verifiedUid(output: String): Boolean = output.trim() == "2000"
     const val AUDIO_DIAGNOSTIC =
         "dumpsys audio | grep -E -i 'audio route|output device|speaker|bluetooth|a2dp' | head -n 25"
+    // Read-only capability hint; never activates or registers routing.
+    const val ROUTING_PROBE =
+        "id -u; dumpsys media.audio_policy | grep -E -i 'r_submix|remote.?submix|mix route|policy mix|policy mixes' | head -n 24"
 }
 
 /** SEQ-specific audio diagnostics only; ADB connection, discovery, pairing,
@@ -79,6 +82,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         )
     }
 
+    val routingProbe = MutableStateFlow("Not checked · exclusive routing unverified")
     val state = MutableStateFlow(AdbDiagnosticState(
         message = if (preferences.previouslyAuthorized) "Previously authorized • idle" else "ADB setup required",
         verifiedAt = preferences.lastVerifiedAt,
@@ -142,6 +146,39 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
             } catch (failure: Exception) {
                 SeqRuntime.log("SEQ audio diagnostics unavailable: " + failure.javaClass.simpleName)
             }
+        }
+    }
+
+    /** Explicit, read-only routing probe; never starts capture or redirects audio. */
+    fun inspectRouting() {
+        if (shutDown) return
+        routingProbe.value = "Checking ADB audio policy…"
+        scope.launch {
+            val result = try {
+                if (!sharedCore.retry(auto = false)) {
+                    "ADB unavailable · audio routing unchanged"
+                } else {
+                    val output = sharedCore.execVerified(AdbAccessPolicy.ROUTING_PROBE, 8_000)
+                    val lines = output.lineSequence().map { it.trim() }
+                        .filter { it.isNotEmpty() }.take(25).toList()
+                    val uid = lines.firstOrNull()
+                    val hasSubmix = lines.any { line ->
+                        line.contains("r_submix", ignoreCase = true) ||
+                            line.contains("remote_submix", ignoreCase = true) ||
+                            line.contains("remote submix", ignoreCase = true)
+                    }
+                    SeqRuntime.log("Routing probe shellUID=${if (uid == "2000") "2000" else "unverified"} submixHint=$hasSubmix")
+                    if (uid != "2000") "Shell identity not verified · audio unchanged"
+                    else if (hasSubmix) "Remote-submix hint found · exclusive route NOT verified"
+                    else "Remote-submix not seen · exclusive route NOT verified"
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("Routing probe failed: " + failure.javaClass.simpleName)
+                "Routing probe failed: " + failure.javaClass.simpleName
+            }
+            routingProbe.value = result
         }
     }
 

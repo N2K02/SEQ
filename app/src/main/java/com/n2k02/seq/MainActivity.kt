@@ -344,6 +344,7 @@ class MainActivity : ComponentActivity() {
                 Page.ADVANCED_AUDIO -> AdvancedAudioScreen(
                   route = activeRoute, active = status.processing,
                   correction = activeCorrection,
+                  adb = adb,
                   onSave = { profile ->
                     store.saveRouteCorrection(activeRoute, profile)
                     correctionRevision++
