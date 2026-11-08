@@ -61,7 +61,7 @@ private val accent: Color @Composable get() = MaterialTheme.colorScheme.primary
 private val background: Color @Composable get() = MaterialTheme.colorScheme.background
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
-  HOME("Home"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"), DIAGNOSTICS("Diagnostics"),
+  HOME("Home"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"),
   UPDATES("Updates"), EQUALIZER("Equalizer"), DEVICE_PROFILES("Device profiles"), SIGNAL_PATH("Signal path")
 }
 
@@ -69,7 +69,6 @@ private fun pageIcon(page:Page):ImageVector = when(page) {
   Page.HOME -> Icons.Rounded.Home
   Page.SETTINGS -> Icons.Rounded.Settings
   Page.ADB_CONNECTION -> Icons.Rounded.SettingsInputAntenna
-  Page.DIAGNOSTICS -> Icons.Rounded.MonitorHeart
   Page.UPDATES -> Icons.Rounded.SystemUpdate
   Page.EQUALIZER -> Icons.Rounded.Equalizer
   Page.DEVICE_PROFILES -> Icons.Rounded.Headphones
@@ -105,8 +104,8 @@ class MainActivity : ComponentActivity() {
         page = if (isAudioPage) audioParent else Page.SETTINGS
       }
       DisposableEffect(page) {
-        if((page==Page.DIAGNOSTICS || page==Page.ADB_CONNECTION)) adb.enterPage()
-        onDispose { if((page==Page.DIAGNOSTICS || page==Page.ADB_CONNECTION)) adb.leavePage() }
+        if(page==Page.ADB_CONNECTION) adb.enterPage()
+        onDispose { if(page==Page.ADB_CONNECTION) adb.leavePage() }
       }
       val updateStatus by SeqUpdater.controller.status.collectAsState()
       val experimentalEnabled by SeqUpdater.experimentalEnabled.collectAsState()
@@ -197,15 +196,6 @@ class MainActivity : ComponentActivity() {
                   // while Home is visible; SEQ DSP remains independent.
                   dev.n2k02.adb.core.AdbPageLifecycle(adb.sharedCore)
                   val adbState by adb.sharedCore.state.collectAsState()
-                  if (!adbState.connected) {
-                    dev.n2k02.adb.core.AdbHomeSetupPage(
-                      adb = adb.sharedCore,
-                      accessibilityEnabled = com.n2k02.seq.adb.SeqPairingAccessibilityService.isEnabled(this@MainActivity),
-                      onOpenAccessibility = {
-                        startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                      }
-                    )
-                  }
                   AudioCard {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                       Column(Modifier.weight(1f)) {
@@ -217,6 +207,21 @@ class MainActivity : ComponentActivity() {
                             else -> "Off"
                           }, color = if (status.processing) accent else quiet)
                       }
+                      Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = if (adbState.connected) MaterialTheme.colorScheme.primaryContainer
+                          else MaterialTheme.colorScheme.surfaceContainerHigh
+                      ) {
+                        Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                          Icon(if (adbState.connected) Icons.Rounded.CheckCircle else Icons.Rounded.LinkOff,
+                            contentDescription = null, modifier = Modifier.size(16.dp))
+                          Text(if (adbState.connected) "ADB connected" else "ADB disconnected",
+                            style = MaterialTheme.typography.labelSmall)
+                        }
+                      }
+                      Spacer(Modifier.width(8.dp))
                       Switch(checked = settings.enabled, onCheckedChange = {
                         if (it) {
                           // One prompt: notifications (engine) + output analysis for SEQ Auto.
@@ -254,6 +259,15 @@ class MainActivity : ComponentActivity() {
                     if (!adaptiveOn && settings.enabled && mode == "SEQ Auto") TextButton(onClick = {
                       requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 110)
                     }) { Text("Let SEQ adapt to your music") }
+                  }
+                  if (!adbState.connected) {
+                    dev.n2k02.adb.core.AdbHomeSetupPage(
+                      adb = adb.sharedCore,
+                      accessibilityEnabled = com.n2k02.seq.adb.SeqPairingAccessibilityService.isEnabled(this@MainActivity),
+                      onOpenAccessibility = {
+                        startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                      }
+                    )
                   }
                   AudioCard {
                     MenuRow(output, "Device details", routeIcon(activeRoute), card = true) {
@@ -329,7 +343,6 @@ class MainActivity : ComponentActivity() {
                   MenuRow("Signal path", "Processing stages and peak limiter", Icons.Rounded.AccountTree) { openAudioPage(Page.SIGNAL_PATH) }
                   MenuRow("ADB connection", "Pairing, recovery and TCP/5555", Icons.Rounded.SettingsInputAntenna) { page = Page.ADB_CONNECTION }
                   HorizontalDivider()
-                  MenuRow("Diagnostics", "Direct ADB • Audio sessions", Icons.Rounded.MonitorHeart) { page = Page.DIAGNOSTICS }
                   MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",
                     Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
                 }
@@ -338,7 +351,6 @@ class MainActivity : ComponentActivity() {
                   adb = adb,
                   permissionRevision = permissionRevision
                 )
-                Page.DIAGNOSTICS -> SeqAdbDiagnosticsScreen(adb)
                 Page.UPDATES -> {
                   N2K02UpdateScreen(
                     controller = SeqUpdater.controller,
