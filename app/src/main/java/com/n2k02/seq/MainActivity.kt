@@ -122,6 +122,8 @@ class MainActivity : ComponentActivity() {
       val activeRoute = SeqRoute.kind(this, carMode)
       val output = SeqRoute.describe(this, carMode)
       var bindingRevision by remember { mutableIntStateOf(0) }
+      var correctionRevision by remember { mutableIntStateOf(0) }
+      val activeCorrection = remember(activeRoute, correctionRevision) { store.routeCorrection(activeRoute) }
       val boundBands = remember(activeRoute, bindingRevision) { store.routeBands(activeRoute) }
       val manual = boundBands ?: settings.manualBands
       fun bindOutput(bands: List<Float>?) {
@@ -134,11 +136,11 @@ class MainActivity : ComponentActivity() {
       val autoBands = remember(tone, adaptiveTone) {
         SystemEqCurveBuilder.build(tone, null).bands.map { it.gainDb }
       }
-      val response = remember(settings, status.eqResponse, tone, manual, activeRoute, mediaVolume) {
+      val response = remember(settings, status.eqResponse, tone, manual, activeRoute, mediaVolume, activeCorrection) {
         if (settings.profile == AudioProfile.PURE) List(SystemEqCurveBuilder.BAND_COUNT) { 0f }
         else status.eqResponse ?: SystemEqCurveBuilder.configured(tone, manual,
           SystemEqCurveBuilder.bassGain(settings, activeRoute, mediaVolume), settings.preampDb,
-          allowBoost = false, correction = store.routeCorrection(activeRoute)).let {
+          allowBoost = false, correction = activeCorrection).let {
             curve -> curve.bands.map { it.gainDb + curve.inputGainDb } }
       }
       fun update(next: EngineSettings) {
@@ -341,9 +343,10 @@ class MainActivity : ComponentActivity() {
                 Page.SIGNAL_PATH -> SignalPathScreen(status, output, settings) { update(it) }
                 Page.ADVANCED_AUDIO -> AdvancedAudioScreen(
                   route = activeRoute, active = status.processing,
-                  correction = store.routeCorrection(activeRoute),
+                  correction = activeCorrection,
                   onSave = { profile ->
                     store.saveRouteCorrection(activeRoute, profile)
+                    correctionRevision++
                     update(settings)
                   })
 
