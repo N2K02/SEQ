@@ -161,7 +161,10 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         } finally {
             withContext(NonCancellable) {
                 sharedCore.releaseService()
-                if (!visible) sharedCore.disconnectIdle()
+                // A foreground page may have opened while this worker was connecting.
+                // Never retire the shared socket out from under its new UI owner.
+                if (!visible && active?.isPageActive() != true)
+                    sharedCore.disconnectIdle()
             }
         }
     }
