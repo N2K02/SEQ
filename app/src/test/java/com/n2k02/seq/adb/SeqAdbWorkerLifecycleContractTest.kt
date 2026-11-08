@@ -31,6 +31,16 @@ class SeqAdbWorkerLifecycleContractTest {
    assertTrue(cleanup.contains("if (!visible && active?.isPageActive() != true)"))
    assertTrue(cleanup.contains("sharedCore.disconnectIdle()"))
  }
+ @Test fun navigatingAdbSettingsDoesNotClearManualStop() {
+   val client=source("LocalAdbDiagnostics.kt")
+   val enter=client.substringAfter("@Synchronized fun enterPage(")
+     .substringBefore("@Synchronized fun leavePage()")
+   assertTrue(enter.contains("sharedCore.enterPage()"))
+   assertFalse(enter.contains("preferences.markUserOpened()"))
+   val activity=listOf(File("app/src/main/java/com/n2k02/seq/MainActivity.kt"),
+     File("../app/src/main/java/com/n2k02/seq/MainActivity.kt")).first { it.isFile }.readText()
+   assertTrue(activity.contains("adb.preferences.markUserOpened()"))
+ }
  @Test fun noParallelDiscoveryOrWatchdogInSeqFacade() {
    val client=source("LocalAdbDiagnostics.kt")
    assertFalse(client.contains("SeqAdbDiscovery("))
