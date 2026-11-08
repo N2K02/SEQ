@@ -134,7 +134,9 @@ class SeqEngineService : Service() {
     val route = SeqRoute.kind(this, car)
     val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(this))
     val effect = SeqSystemEffect.open(0, id, SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb,
-      settings.routeBands(route) ?: s.manualBands, bassDb, s.preampDb)
+      settings.routeBands(route) ?: s.manualBands, bassDb, s.preampDb,
+      settings.routeCorrection(route), s.compressorEnabled, s.compressorRatio,
+      s.compressorThresholdDb)
     if (effect == null) {
       SeqRuntime.log("Session effect unavailable")
       report("Audio effect unavailable")
@@ -149,7 +151,9 @@ class SeqEngineService : Service() {
     val route = SeqRoute.kind(this, car)
     val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(this))
     effect.apply(SeqRoute.tone(this, s, car), s.peakGuard, s.peakCeilingDb,
-      settings.routeBands(route) ?: s.manualBands, bassDb, s.preampDb)
+      settings.routeBands(route) ?: s.manualBands, bassDb, s.preampDb,
+      settings.routeCorrection(route), s.compressorEnabled, s.compressorRatio,
+      s.compressorThresholdDb)
   }
   private fun detach(id: Int) {
     effects.remove(id)?.close()

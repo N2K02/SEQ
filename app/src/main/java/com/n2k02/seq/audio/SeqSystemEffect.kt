@@ -8,6 +8,7 @@ import android.os.Looper
 import com.n2k02.seq.model.SystemEqCurve
 import com.n2k02.seq.model.SystemEqCurveBuilder
 import com.n2k02.seq.model.Tone
+import com.n2k02.seq.model.HeadphoneProfile
 import java.io.Closeable
 
 /**
@@ -27,13 +28,17 @@ class SeqSystemEffect private constructor(
   companion object {
     fun open(priority: Int, session: Int, tone: Tone, peakGuard: Boolean, ceilingDb: Float,
       manualBands: List<Float>?, bassDb: Float, preampDb: Float,
-      allowDynamics: Boolean = true, onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
+      correction: HeadphoneProfile? = null,
+      compressorEnabled: Boolean = false, compressorRatio: Float = 1.5f,
+      compressorThresholdDb: Float = -18f, allowDynamics: Boolean = true, onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
       val preferred = if (allowDynamics) {
         configure(runCatching { dynamics(priority, session) }.getOrNull(),
-          tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb)
+          tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb,
+          correction, compressorEnabled, compressorRatio, compressorThresholdDb)
       } else null
       val created = preferred ?: configure(runCatching { equalizer(priority, session) }.getOrNull(),
-          tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb)
+          tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb,
+          correction, compressorEnabled, compressorRatio, compressorThresholdDb)
       if (created != null && onControl != null) runCatching {
         created.effect.setControlStatusListener { _, granted -> onControl(created, granted) }
       }
@@ -41,10 +46,13 @@ class SeqSystemEffect private constructor(
     }
 
     private fun configure(candidate: SeqSystemEffect?, tone: Tone, peakGuard: Boolean,
-      ceilingDb: Float, manualBands: List<Float>?, bassDb: Float, preampDb: Float): SeqSystemEffect? {
+      ceilingDb: Float, manualBands: List<Float>?, bassDb: Float, preampDb: Float,
+      correction: HeadphoneProfile?, compressorEnabled: Boolean,
+      compressorRatio: Float, compressorThresholdDb: Float): SeqSystemEffect? {
       candidate ?: return null
       val ready = runCatching {
-        candidate.apply(tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb)
+        candidate.apply(tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb,
+          correction, compressorEnabled, compressorRatio, compressorThresholdDb)
         candidate.enable()
       }.getOrDefault(false)
       if (ready) return candidate
@@ -55,7 +63,7 @@ class SeqSystemEffect private constructor(
     private fun dynamics(priority: Int, session: Int): SeqSystemEffect? {
       val config = DynamicsProcessing.Config.Builder(
         DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, 2,
-        true, SystemEqCurveBuilder.BAND_COUNT, false, 0, false, 0, true
+        true, SystemEqCurveBuilder.BAND_COUNT, true, 3, false, 0, true
       ).build()
       val dp = DynamicsProcessing(priority, session, config)
       if (!dp.hasControl()) { dp.release(); return null }
@@ -69,7 +77,9 @@ class SeqSystemEffect private constructor(
   }
 
   private data class Tuning(val tone: Tone, val peakGuard: Boolean, val ceilingDb: Float,
-    val manualBands: List<Float>?, val bassDb: Float, val preampDb: Float)
+    val manualBands: List<Float>?, val bassDb: Float, val preampDb: Float,
+    val correction: HeadphoneProfile?, val compressorEnabled: Boolean,
+    val compressorRatio: Float, val compressorThresholdDb: Float)
   private var tuning: Tuning? = null
   private var programmedCurve: SystemEqCurve? = null
   private val main = Handler(Looper.getMainLooper())
@@ -81,8 +91,11 @@ class SeqSystemEffect private constructor(
     private set
 
   fun apply(tone: Tone, peakGuard: Boolean, ceilingDb: Float, manualBands: List<Float>?,
-    bassDb: Float, preampDb: Float) {
-    val next = Tuning(if (manualBands == null) tone else Tone(), peakGuard, ceilingDb, manualBands, bassDb, preampDb)
+    bassDb: Float, preampDb: Float, correction: HeadphoneProfile? = null,
+    compressorEnabled: Boolean = false, compressorRatio: Float = 1.5f,
+    compressorThresholdDb: Float = -18f) {
+    val next = Tuning(if (manualBands == null) tone else Tone(), peakGuard, ceilingDb,
+      manualBands, bassDb, preampDb, correction, compressorEnabled, compressorRatio, compressorThresholdDb)
     if (next == tuning) return
     program(next)
     tuning = next
@@ -99,12 +112,26 @@ class SeqSystemEffect private constructor(
     cancelTransition()
     dynamics?.let { dp ->
       val target = SystemEqCurveBuilder.configured(tuning.tone, tuning.manualBands, tuning.bassDb,
-        tuning.preampDb, allowBoost = tuning.peakGuard)
+        tuning.preampDb, allowBoost = tuning.peakGuard, correction = tuning.correction)
       val old = programmedCurve
       val prior = this.tuning
       if (prior?.peakGuard != tuning.peakGuard || prior?.ceilingDb != tuning.ceilingDb) {
         dp.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, tuning.peakGuard, 0,
           1f, 60f, 10f, tuning.ceilingDb.coerceIn(-12f, -0.1f), 0f))
+      }
+      if (prior == null || prior.compressorEnabled != tuning.compressorEnabled ||
+        prior.compressorRatio != tuning.compressorRatio ||
+        prior.compressorThresholdDb != tuning.compressorThresholdDb) {
+        val mbc = DynamicsProcessing.Mbc(true, tuning.compressorEnabled, 3)
+        val edges = floatArrayOf(180f, 2400f, 20000f)
+        edges.forEachIndexed { i, hz ->
+          mbc.setBand(i, DynamicsProcessing.MbcBand(true, hz,
+            if (i == 0) 30f else 15f, if (i == 0) 220f else 140f,
+            tuning.compressorRatio.coerceIn(1f, 4f),
+            tuning.compressorThresholdDb.coerceIn(-36f, -6f), 6f,
+            -90f, 1f, 0f, 0f))
+        }
+        dp.setMbcAllChannelsTo(mbc)
       }
       if (old == null || old.bands.size != target.bands.size) {
         programCurve(dp, target)
@@ -145,8 +172,12 @@ class SeqSystemEffect private constructor(
       val centres = List(eq.numberOfBands.toInt()) { eq.getCenterFreq(it.toShort()) / 1000f }
       check(centres.isNotEmpty() && range[0] <= 0 && range[1] >= 0)
       val adjusted = if (tuning.bassDb != 0f || tuning.preampDb < 0f) {
-        val base = manual ?: SystemEqCurveBuilder.build(tuning.tone, null)
+        val base = manual ?: SystemEqCurveBuilder.configured(tuning.tone, null, 0f, 0f, false,
+          tuning.correction)
         SystemEqCurveBuilder.withOutputControls(base, tuning.bassDb, tuning.preampDb, allowBoost = false)
+      } else if (tuning.correction != null) {
+        SystemEqCurveBuilder.configured(tuning.tone, tuning.manualBands, 0f, 0f, false,
+          tuning.correction)
       } else manual
       val target = SystemEqCurveBuilder.oemLevels(tuning.tone, centres,
         range[0].toInt()..range[1].toInt(), adjusted)

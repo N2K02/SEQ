@@ -54,10 +54,12 @@ object SeqGlobalEffect {
       val route = SeqRoute.kind(ctx, car)
       val bands = store.routeBands(route) ?: s.manualBands
       val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(ctx))
+      val correction = store.routeCorrection(route)
       val tone = SeqRoute.tone(ctx, s, car)
       fun attach(allowDynamics: Boolean): SeqSystemEffect? =
         SeqSystemEffect.open(PRIORITY, OUTPUT_MIX, tone, s.peakGuard, s.peakCeilingDb,
-          bands, bassDb, s.preampDb, allowDynamics, ::onControl)?.also {
+          bands, bassDb, s.preampDb, correction, s.compressorEnabled,
+          s.compressorRatio, s.compressorThresholdDb, allowDynamics, ::onControl)?.also {
           effect = it
           SeqRuntime.log("Output mix effect attached (" + it.engine + ")")
         }
@@ -70,7 +72,8 @@ object SeqGlobalEffect {
       if (current != null) {
         val active = current
         val ready = runCatching {
-          active.apply(tone, s.peakGuard, s.peakCeilingDb, bands, bassDb, s.preampDb)
+          active.apply(tone, s.peakGuard, s.peakCeilingDb, bands, bassDb, s.preampDb,
+            correction, s.compressorEnabled, s.compressorRatio, s.compressorThresholdDb)
           active.enable()
         }.getOrDefault(false)
         if (!ready) {
