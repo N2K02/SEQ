@@ -15,6 +15,7 @@ import dev.n2k02.updater.N2K02UpdateBadgedIcon
 import dev.n2k02.updater.N2K02UpdateScreen
 import dev.n2k02.updater.hasPendingUpdate
 import androidx.activity.compose.setContent
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -175,9 +177,11 @@ class MainActivity : ComponentActivity() {
                     NavigationBarItem(selected = false, onClick = {
                       update(settings.copy(enabled = false))
                       SeqPlaybackMonitor.stop()
-                      adb.shutdown()
                       SeqUpdater.controller.cancel()
-                      finishAffinity()
+                      lifecycleScope.launch {
+                        adb.shutdownAndAwait()
+                        finishAffinity()
+                      }
                     }, icon = { Icon(Icons.Rounded.PowerSettingsNew, contentDescription = "Quit SEQ") }, label = { Text("Quit") })
                   }
                 }
