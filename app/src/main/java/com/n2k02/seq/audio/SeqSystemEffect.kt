@@ -102,7 +102,7 @@ class SeqSystemEffect private constructor(
         tuning.preampDb, allowBoost = tuning.peakGuard)
       val old = programmedCurve
       val prior = this.tuning
-      if (prior?.peakGuard != tuning.peakGuard || prior.ceilingDb != tuning.ceilingDb) {
+      if (prior?.peakGuard != tuning.peakGuard || prior?.ceilingDb != tuning.ceilingDb) {
         dp.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, tuning.peakGuard, 0,
           1f, 60f, 10f, tuning.ceilingDb.coerceIn(-12f, -0.1f), 0f))
       }
