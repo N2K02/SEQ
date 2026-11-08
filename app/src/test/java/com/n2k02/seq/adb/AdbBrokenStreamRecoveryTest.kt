@@ -1,49 +1,35 @@
 package com.n2k02.seq.adb
-
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 
-/** Stream EOF must not leave an apparently healthy UID-2000 ADB manager. */
+/** Verified shell and stream lifetime belong to shared ADB core, never to SEQ. */
 class AdbBrokenStreamRecoveryTest {
-    private fun transportSource(): String =
-        listOf(File("app/src/main/java/com/n2k02/seq/adb/AdbTransport.kt"), File("../app/src/main/java/com/n2k02/seq/adb/AdbTransport.kt"))
-            .first { it.isFile }.readText()
+    private fun source(file: String): String = listOf(
+        File("app/src/main/java/com/n2k02/seq/adb/" + file),
+        File("../app/src/main/java/com/n2k02/seq/adb/" + file),
+        File("src/main/java/com/n2k02/seq/adb/" + file),
+    ).first { it.isFile }.readText()
 
-    @Test fun streamFailureRetiresWholeManagerBeforeNextCommand() {
-        val src = transportSource()
-        assertTrue(src.contains("synchronized(this@AdbTransport)"))
-        assertTrue(src.contains("if (manager === mgr)"))
-        assertTrue(src.contains("manager = null"))
-        assertTrue(src.contains("lastKnownConnected = false"))
-        assertTrue(src.contains("runCatching { mgr.disconnect() }"))
-        assertTrue(src.contains("throw t") || src.contains("throw failure"))
-        assertTrue(src.contains("private const val SHELL_SERVICE = \"exec:sh\""))
-        assertTrue(src.contains("mutex.withLock"))
+    @Test fun allCommandsUseVerifiedSharedShell() {
+        val transport = source("AdbTransport.kt")
+        assertTrue(transport.contains("core().execVerified(command, timeoutMs)"))
+        assertFalse(transport.contains("AbsAdbConnectionManager"))
+        assertFalse(transport.contains("openStream("))
+        assertFalse(transport.contains("readLine()"))
     }
 
-    @Test fun watchdogNeverClosesReaderWhileReadLineIsBlocked() {
-        val src = transportSource()
-        assertTrue(src.contains("@Volatile private var running = false"))
-        assertTrue(src.contains("@Volatile private var closing = false"))
-        assertTrue(src.contains("check(!closing)"))
-        assertTrue(src.contains("if (closing) runCatching { reader.close() }"))
-        assertTrue(src.contains("if (!running) runCatching { reader.close() }"))
-        assertTrue(src.contains("runCatching { if (!stream.isClosed) stream.close() }"))
-        assertTrue(src.contains("runCatching { out.close() }"))
+    @Test fun closeReleasesSharedSessionWithoutDiscardingAuthorization() {
+        val transport = source("AdbTransport.kt")
+        assertTrue(transport.contains("disconnectIdle()"))
+        assertTrue(transport.contains("suspend fun close() = disconnect()"))
+        assertFalse(transport.contains("manager = null"))
     }
 
-    @Test fun oldTimeoutWatchdogCannotRetireNewSession() {
-        val src = transportSource()
-        val watchdog = src.substringAfter(
-            "val watchdog = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {"
-        ).substringBefore("session = session ?:")
-        assertTrue(watchdog.contains("synchronized(this@AdbTransport)"))
-        val guarded = watchdog.substringAfter("if (manager === mgr) {")
-            .substringBefore("} else if (shell === session)")
-        assertTrue(guarded.contains("manager = null"))
-        assertTrue(guarded.contains("lastKnownConnected = false"))
-        assertTrue(guarded.contains("shell = null"))
+    @Test fun transportFailuresDoNotSwallowCancellation() {
+        val transport = source("AdbTransport.kt")
+        assertTrue(transport.contains("catch (cancelled: CancellationException)"))
+        assertTrue(transport.contains("throw cancelled"))
+        assertTrue(transport.contains("Result.failure(e)"))
     }
-
 }

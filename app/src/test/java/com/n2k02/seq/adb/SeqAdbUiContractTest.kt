@@ -1,78 +1,52 @@
 package com.n2k02.seq.adb
-
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 
-/** Prevent SEQ ADB settings drifting from VRec's two-card automatic recovery UI. */
+/** Shared core is the only author of connection Settings and Diagnostics. */
 class SeqAdbUiContractTest {
  private fun source(name:String):String {
-   val paths=listOf(File("src/main/java/com/n2k02/seq/$name"),
-     File("app/src/main/java/com/n2k02/seq/$name"))
+   val paths=listOf(File("src/main/java/com/n2k02/seq/"+name),
+     File("app/src/main/java/com/n2k02/seq/"+name))
    return paths.first { it.isFile }.readText()
  }
- @Test fun vrecSettingsParityWithoutExtraControls() {
-   val ui=source("MainActivity.kt")
-   val diagnostics=source("SeqAdbDiagnosticsScreen.kt")
-   assertTrue(ui.contains("SeqAdbDiagnosticsScreen("))
-   assertTrue(diagnostics.contains("AdbSettingCard(\"SEQ ADB Details\""))
-   assertTrue(diagnostics.contains("status.uidVerified"))
-   assertTrue(diagnostics.contains("status.verifiedAt"))
-   assertTrue(diagnostics.contains("status.scanning"))
-   assertTrue(diagnostics.contains("status.transport"))
-   assertTrue(diagnostics.contains("AdbSettingCard(\"Pairing & recovery\""))
-   assertTrue(diagnostics.contains("AdbSettingCard(\"Connection & security\""))
-   listOf("Auto-detect pairing code","Connection watchdog","Start on boot",
-     "Restore after restart","Keep ADB without Wi-Fi (TCP/5555)").forEach {
-     assertTrue(diagnostics.contains(it))
-   }
-   assertEquals(5,Regex("AdbSettingToggle\\(\"").findAll(diagnostics).count())
-   listOf("Permissions","Automatic connection","SEQ audio diagnostics",
-     "Show discovered ports","Inspect audio","Retry","Open Wireless debugging",
-     "OutlinedTextField","Enter pairing code").forEach {
-     assertFalse("Unexpected manual or extra control: $it",diagnostics.contains(it))
-   }
-   assertTrue(diagnostics.contains("if (status.connected && status.uidVerified && status.lastVerifiedPort == 5555)"))
-   assertTrue(diagnostics.contains("adb.disconnectTcp()"))
-   assertTrue(diagnostics.contains("Disable TCP/5555"))
-   assertTrue(diagnostics.contains("SeqPairingAccessibilityService.isEnabled(context)"))
-   assertTrue(ui.contains("permissionRevision++"))
-   assertFalse(ui.contains("Page.LOGS"))
-   assertFalse(ui.contains("Page.ABOUT"))
+ @Test fun coreRendersBothConnectionCardsWithNoDuplicateUi() {
+   val screens=source("SeqAdbDiagnosticsScreen.kt")
+   assertTrue(screens.contains("AdbConnectionSettingsPage("))
+   assertTrue(screens.contains("AdbDiagnosticsPage("))
+   assertTrue(screens.contains("adb.sharedCore"))
+   assertTrue(screens.contains("SeqPairingAccessibilityService.isEnabled(context)"))
+   assertFalse(screens.contains("AdbSettingToggle("))
+   assertFalse(screens.contains("OutlinedTextField"))
+   assertFalse(screens.contains("Pairing & recovery"))
+   assertFalse(screens.contains("Connection & security"))
+   assertFalse(screens.contains("Enter pairing code"))
  }
- @Test fun diagnosticsAndConnectionSettingsShowSeparateCards() {
-   val ui = source("MainActivity.kt")
-   val screens = source("SeqAdbDiagnosticsScreen.kt")
-   val details = screens.substringAfter("internal fun SeqAdbDiagnosticsScreen(")
-     .substringBefore("internal fun SeqAdbConnectionScreen(")
-   val controls = screens.substringAfter("internal fun SeqAdbConnectionScreen(")
+ @Test fun settingsAndDiagnosticsRemainSeparatePages() {
+   val ui=source("MainActivity.kt")
    assertTrue(ui.contains("Page.DIAGNOSTICS -> SeqAdbDiagnosticsScreen(adb)"))
    assertTrue(ui.contains("Page.ADB_CONNECTION -> SeqAdbConnectionScreen("))
-   assertTrue(details.contains("SEQ ADB Details"))
-   assertFalse(details.contains("Pairing & recovery"))
-   assertFalse(details.contains("Connection & security"))
-   assertFalse(details.contains("SeqAdbConnectionScreen("))
-   assertTrue(controls.contains("Pairing & recovery"))
-   assertTrue(controls.contains("Connection & security"))
+   assertTrue(ui.contains("permissionRevision++"))
  }
  @Test fun automaticAdbDefaultsMatchVrec() {
    val prefs=source("adb/SeqAdbPreferences.kt")
-   assertTrue(prefs.contains("getBoolean(\"watchdog\",true)"))
-   assertTrue(prefs.contains("getBoolean(\"start_on_boot\",true)"))
-   assertTrue(prefs.contains("getBoolean(\"tcp_mode\",true)"))
-   assertTrue(prefs.contains("getBoolean(\"auto_pair_code\",true)"))
+   listOf("watchdog","start_on_boot","tcp_mode","auto_pair_code").forEach {
+     assertTrue(prefs.contains("getBoolean(\""+it+"\",true)"))
+   }
    assertTrue(prefs.contains("getBoolean(\"restore_after_restart\",false)"))
  }
- @Test fun pairingReaderNeverExaminesOtherAppContents() {
-   val a=source("adb/SeqPairingAccessibilityService.kt")
-   assertTrue(a.contains("SeqPairingCodeUiPolicy.isSettingsPackage"))
-   assertFalse(a.contains("performAction("))
-   assertFalse(a.contains("Settings.Secure.putString"))
+ @Test fun pairingReaderDelegatesSettingsOnlyPolicyToCore() {
+   val reader=source("adb/SeqPairingAccessibilityService.kt")
+   assertTrue(reader.contains("SharedAdbPairingAccessibilityService()"))
+   assertTrue(reader.contains("override fun acquireCore()"))
+   assertFalse(reader.contains("rootInActiveWindow"))
+   assertFalse(reader.contains("performAction("))
  }
- @Test fun quitCancelsBackgroundRecoveryAndClosesTransport() {
-   val a=source("adb/LocalAdbDiagnostics.kt")
-   assertTrue(a.contains("SeqAdbRecoveryWorker.cancelAll(app)"))
-   assertTrue(a.contains("discovery.stop()"))
-   assertTrue(a.contains("AdbTransport.close()"))
+ @Test fun quitAwaitedBeforeFinishingActivity() {
+   val ui=source("MainActivity.kt")
+   val facade=source("adb/LocalAdbDiagnostics.kt")
+   assertTrue(ui.contains("adb.shutdownAndAwait()"))
+   assertTrue(facade.contains("SeqAdbRecoveryWorker.cancelAll(app)"))
+   assertTrue(facade.contains("SharedAdbHostAdapter.shutdown()"))
  }
 }
