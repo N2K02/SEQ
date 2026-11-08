@@ -36,7 +36,15 @@ class SeqAdbRecoveryWorker(context:Context,params:WorkerParameters):
       finally { client.disposeAndAwait() }
       return Result.success()
     } catch(cancelled:CancellationException) { throw cancelled }
-    catch(e:Exception) { return Result.success() }
+    catch(e:Exception) {
+      // WorkManager may be deferred; preserve a diagnostic breadcrumb instead
+      // of silently hiding failed startup/recovery from the Logs screen.
+      com.n2k02.seq.audio.SeqRuntime.log(
+        "ADB " + (if (bootRecovery) "boot" else "watchdog") +
+          " recovery failed: " + e.javaClass.simpleName
+      )
+      return Result.success()
+    }
   }
   companion object {
     private const val WATCHDOG="seq-adb-watchdog"
