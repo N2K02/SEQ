@@ -106,9 +106,23 @@ object SystemEqCurveBuilder {
   }
 
   fun configured(tone: Tone, manualBands: List<Float>?, bassDb: Float, preampDb: Float,
-    allowBoost: Boolean): SystemEqCurve = withOutputControls(
-    manualBands?.let(::manual) ?: build(tone, null), bassDb, preampDb, allowBoost
-  )
+    allowBoost: Boolean, correction: HeadphoneProfile? = null): SystemEqCurve {
+    val base = manualBands?.let(::manual) ?: build(tone, null)
+    val combined = if (correction == null) base else {
+      val bands = base.bands.mapIndexed { i, band ->
+        val offset = correction.filters.sumOf { EqResponse.db(precisionCentres[i], it) }.toFloat()
+        band.copy(gainDb = band.gainDb + offset)
+      }
+      val correctionBoost = (0..400).maxOf { i ->
+        correction.filters.sumOf { EqResponse.db(LOW_HZ * SPAN.pow(i / 400.0), it) }
+      }.coerceAtLeast(0.0).toFloat()
+      val peak = bands.maxOf { it.gainDb }.coerceAtLeast(0f)
+      val safeInput = minOf(base.inputGainDb - correctionBoost,
+        correction.preampDb.toFloat(), -peak)
+      SystemEqCurve(safeInput, bands)
+    }
+    return withOutputControls(combined, bassDb, preampDb, allowBoost)
+  }
 
   /** Reserve headroom for either curve while Android applies band parameters individually. */
   fun transitionGain(previous: SystemEqCurve?, next: SystemEqCurve): Float {

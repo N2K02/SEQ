@@ -34,6 +34,9 @@ data class EngineSettings(
   val bassBoost: Float = 0f,
   val preampDb: Float = 0f,
   val soundMode: SoundMode = SoundMode.NATURAL,
+  val compressorEnabled: Boolean = false,
+  val compressorRatio: Float = 1.5f,
+  val compressorThresholdDb: Float = -18f,
   val dynamicBass: Boolean = false,
   val bassIntensity: Float = 0.35f
 )
