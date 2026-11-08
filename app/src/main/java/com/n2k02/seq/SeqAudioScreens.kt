@@ -103,14 +103,14 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
   onApply: (List<Float>) -> Unit, onSave: (String, List<Float>) -> Unit) {
   val compactCount = SystemEqCurveBuilder.COMPACT_BAND_COUNT
   val precisionCount = SystemEqCurveBuilder.BAND_COUNT
-  var count by rememberSaveable { mutableIntStateOf(initial.size) }
+  var count by rememberSaveable { mutableIntStateOf(compactCount) }
   var compact by rememberSaveable {
-    mutableStateOf(if (initial.size == compactCount) ArrayList(initial) else null)
+    mutableStateOf(ArrayList(if (initial.size == compactCount) initial else SystemEqCurveBuilder.resample(initial, compactCount)))
   }
   var precision by rememberSaveable {
     mutableStateOf(if (initial.size == precisionCount) ArrayList(initial) else null)
   }
-  val bands = if (count == compactCount) checkNotNull(compact) else checkNotNull(precision)
+  val bands = if (count == compactCount) compact else checkNotNull(precision)
   fun updateBands(next: List<Float>) {
     if (count == compactCount) compact = ArrayList(next) else precision = ArrayList(next)
   }
@@ -119,12 +119,10 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
   val limit = SystemEqCurveBuilder.MANUAL_LIMIT_DB
   AudioCard {
     Text("Equalizer bands", style = MaterialTheme.typography.titleLarge)
+    Text("10 easy controls, with 31-band processing. Advanced editing remains available.", style = MaterialTheme.typography.bodySmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       listOf(compactCount, precisionCount).forEach { choice ->
         FilterChip(selected = count == choice, onClick = {
-          if (choice == compactCount && compact == null) {
-            compact = ArrayList(SystemEqCurveBuilder.resample(bands, compactCount))
-          }
           if (choice == precisionCount && precision == null) {
             precision = ArrayList(SystemEqCurveBuilder.resample(bands, precisionCount))
           }

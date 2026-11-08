@@ -241,6 +241,16 @@ class MainActivity : ComponentActivity() {
                         label = { Text("Pure") }, modifier = Modifier.weight(1f))
                     }
                     if (mode == "Manual") Text("Manual tuning selected", color = accent)
+                    Text("Sound character", style = MaterialTheme.typography.titleMedium)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      SoundMode.entries.forEach { choice ->
+                        FilterChip(selected = settings.soundMode == choice && manual == null,
+                          onClick = {
+                            bindOutput(null)
+                            update(settings.copy(profile = AudioProfile.AUTO, manualBands = null, soundMode = choice))
+                          }, label = { Text(choice.title) })
+                      }
+                    }
                     if (!adaptiveOn && settings.enabled && mode == "SEQ Auto") TextButton(onClick = {
                       requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 110)
                     }) { Text("Let SEQ adapt to your music") }
@@ -282,7 +292,7 @@ class MainActivity : ComponentActivity() {
                   }
                 }
                 Page.EQUALIZER -> key(activeRoute) {
-                  EqualizerScreen(manual ?: autoBands.map {
+                  EqualizerScreen(manual ?: SystemEqCurveBuilder.resample(autoBands, SystemEqCurveBuilder.COMPACT_BAND_COUNT).map {
                     it.coerceIn(-SystemEqCurveBuilder.MANUAL_LIMIT_DB, SystemEqCurveBuilder.MANUAL_LIMIT_DB)
                   }, mode == "Manual", settings,
                     positivePreamp = status.limiterAvailable && settings.peakGuard,
@@ -314,7 +324,7 @@ class MainActivity : ComponentActivity() {
                   update(settings.copy(peakGuard = it))
                 }
                 Page.SETTINGS -> {
-                  MenuRow("Equalizer", "10- or 31-band manual tuning", Icons.Rounded.Equalizer) { openAudioPage(Page.EQUALIZER) }
+                  MenuRow("Equalizer", "10-band controls · 31-band processing", Icons.Rounded.Equalizer) { openAudioPage(Page.EQUALIZER) }
                   MenuRow("Device profiles", "Output details and saved presets", Icons.Rounded.Headphones) { openAudioPage(Page.DEVICE_PROFILES) }
                   MenuRow("Signal path", "Processing stages and peak limiter", Icons.Rounded.AccountTree) { openAudioPage(Page.SIGNAL_PATH) }
                   MenuRow("ADB connection", "Pairing, recovery and TCP/5555", Icons.Rounded.SettingsInputAntenna) { page = Page.ADB_CONNECTION }
