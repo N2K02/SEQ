@@ -3,7 +3,8 @@ package com.n2k02.seq.audio.pcm
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.pow
+import kotlin.math.PI
+import kotlin.math.sin
 
 /**
  * Sample-level DSP kernel for AUDIO OWNED BY SEQ or a proven exclusive output route.
@@ -11,7 +12,7 @@ import kotlin.math.pow
  *
  * Interleaved stereo PCM32 [-1,+1]; prepare and replace processors OFF the playback thread.
  * Supports a bounded short FIR (for short correction, not long room reverb responses).
- * The 4x intersample estimator is an additional guard, not a certified true-peak limiter.
+ * The 4x windowed-sinc peak estimator adds 16 frames of lookahead; this is an\n * experimental peak guard, not an independently certified true-peak limiter.
  */
 class AdvancedPcmProcessor(
   leftIr: FloatArray = floatArrayOf(1f),
@@ -28,7 +29,24 @@ class AdvancedPcmProcessor(
   private val filters = arrayOf(leftIr.clone(), rightIr.clone())
   private val buffers = arrayOf(FloatArray(leftIr.size), FloatArray(rightIr.size))
   private val positions = IntArray(2)
-  private val previous = FloatArray(2)
+  /** 4x interpolation around the delayed centre sample; calculated once, never in callback. */
+  private val tapCount = 32
+  val lookaheadFrames: Int = 16
+  private val history = Array(2) { FloatArray(tapCount) }
+  private var cursor = 0
+  private val kernels = Array(4) { phase ->
+    val fractions = DoubleArray(tapCount) { tap ->
+      val x = 15.0 + phase / 4.0 - tap
+      if (x == 0.0) 1.0
+      else if (kotlin.math.abs(x) >= 16.0) 0.0
+      else {
+        val z = PI * x
+        (sin(z) / z) * (sin(z / 16.0) / (z / 16.0))
+      }
+    }
+    val normalizer = fractions.sum()
+    FloatArray(tapCount) { (fractions[it] / normalizer).toFloat() }
+  }
   private var gain = 1f
 
   /** Processes exactly [frames] stereo frames in-place without allocating. */
@@ -38,14 +56,15 @@ class AdvancedPcmProcessor(
       val index = frame * 2
       val a = filter(0, samples[index])
       val b = filter(1, samples[index + 1])
-      // Cubic interpolated peak estimate is conservative with an additional ceiling margin.
-      val estimated = max(estimatePeak(previous[0], a), estimatePeak(previous[1], b))
+      history[0][cursor] = a
+      history[1][cursor] = b
+      cursor = (cursor + 1) % tapCount
+      val outputIndex = (cursor + 15) % tapCount
+      val estimated = max(oversampledPeak(0), oversampledPeak(1))
       val desired = if (estimated > ceiling) ceiling / estimated else 1f
       gain = if (desired < gain) desired else min(1f, gain + release)
-      samples[index] = (a * gain).coerceIn(-ceiling, ceiling)
-      samples[index + 1] = (b * gain).coerceIn(-ceiling, ceiling)
-      previous[0] = a
-      previous[1] = b
+      samples[index] = (history[0][outputIndex] * gain).coerceIn(-ceiling, ceiling)
+      samples[index + 1] = (history[1][outputIndex] * gain).coerceIn(-ceiling, ceiling)
     }
   }
 
@@ -63,17 +82,25 @@ class AdvancedPcmProcessor(
     return result
   }
 
-  private fun estimatePeak(before: Float, now: Float): Float {
-    var peak = max(abs(before), abs(now))
-    // Linear 4x estimates are cheap; hardware/true-peak compliance is NOT implied.
-    for (i in 1..3) peak = max(peak, abs(before + (now - before) * i / 4f))
+  private fun oversampledPeak(channel: Int): Float {
+    var peak = 0f
+    val ring = history[channel]
+    for (phase in 0..3) {
+      val coeff = kernels[phase]
+      var sample = 0f
+      for (tap in 0 until tapCount) {
+        sample += coeff[tap] * ring[(cursor + tap) % tapCount]
+      }
+      peak = max(peak, abs(sample))
+    }
     return peak
   }
 
   fun reset() {
     buffers.forEach { it.fill(0f) }
     positions.fill(0)
-    previous.fill(0f)
+    history.forEach { it.fill(0f) }
+    cursor = 0
     gain = 1f
   }
 }

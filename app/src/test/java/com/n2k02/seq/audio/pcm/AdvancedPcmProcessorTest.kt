@@ -6,23 +6,25 @@ import org.junit.Test
 class AdvancedPcmProcessorTest {
   @Test fun identityImpulseKeepsStereoIndependent() {
     val processor = AdvancedPcmProcessor(ceiling = 0.9f)
-    val data = floatArrayOf(0.2f, -0.3f, 0.4f, -0.1f)
+    val data = FloatArray(18 * 2)
+    data[0] = 0.2f; data[1] = -0.3f; data[2] = 0.4f; data[3] = -0.1f
     processor.process(data)
-    assertEquals(0.2f, data[0], 0.0001f)
-    assertEquals(-0.3f, data[1], 0.0001f)
-    assertEquals(0.4f, data[2], 0.0001f)
-    assertEquals(-0.1f, data[3], 0.0001f)
+    assertEquals(16, processor.lookaheadFrames)
+    assertEquals(0.2f, data[32], 0.0001f)
+    assertEquals(-0.3f, data[33], 0.0001f)
+    assertEquals(0.4f, data[34], 0.0001f)
+    assertEquals(-0.1f, data[35], 0.0001f)
   }
 
   @Test fun shortConvolutionPreservesHistoryAcrossBlocks() {
     val engine = AdvancedPcmProcessor(floatArrayOf(0.5f, 0.5f), floatArrayOf(1f))
     val first = floatArrayOf(0.4f, 0f, 0f, 0f)
-    val second = floatArrayOf(0f, 0f)
+    val tail = FloatArray(17 * 2)
     engine.process(first)
-    engine.process(second)
-    assertEquals(0.2f, first[0], 0.001f)
-    assertEquals(0.2f, first[2], 0.001f)
-    assertEquals(0f, second[0], 0.001f)
+    engine.process(tail)
+    assertEquals(0.2f, tail[14 * 2], 0.001f)
+    assertEquals(0.2f, tail[15 * 2], 0.001f)
+    assertEquals(0f, tail[16 * 2], 0.001f)
   }
 
   @Test fun peakGuardNeverOutputsSamplesAboveCeiling() {
@@ -31,9 +33,10 @@ class AdvancedPcmProcessorTest {
     engine.process(input)
     assertTrue(input.all { it in -0.70001f..0.70001f })
     engine.reset()
-    val quiet = floatArrayOf(0.2f, -0.2f)
+    val quiet = FloatArray(17 * 2)
+    quiet[0] = 0.2f; quiet[1] = -0.2f
     engine.process(quiet)
-    assertEquals(0.3f, quiet[0], 0.001f)
+    assertEquals(0.3f, quiet[32], 0.001f)
   }
 
   @Test fun invalidConvolutionIsRejected() {
