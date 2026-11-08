@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
       navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
     store = SettingsStore(this)
     adb = LocalAdbDiagnostics(applicationContext)
-    adb.preferences.markUserOpened()
+    if (savedInstanceState == null) adb.preferences.markUserOpened()
     SeqAdbRecoveryWorker.reconcile(applicationContext)
     SeqUpdater.init(applicationContext)
     setContent {
