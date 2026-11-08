@@ -20,6 +20,8 @@ class SeqAdbWorkerLifecycleContractTest {
    assertTrue(client.contains("sharedCore.disconnectIdle()"))
    assertTrue(worker.contains("finally { client.disposeAndAwait() }"))
    assertTrue(worker.contains("catch(cancelled:CancellationException) { throw cancelled }"))
+   assertTrue(worker.contains("SeqRuntime.log("))
+   assertTrue(worker.contains("recovery failed: "))
  }
  @Test fun workerCannotDisconnectForegroundOwnerOnCompletion() {
    val client=source("LocalAdbDiagnostics.kt")
