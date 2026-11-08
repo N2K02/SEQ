@@ -62,7 +62,8 @@ private val background: Color @Composable get() = MaterialTheme.colorScheme.back
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
   HOME("Home"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"),
-  UPDATES("Updates"), EQUALIZER("Equalizer"), DEVICE_PROFILES("Device profiles"), SIGNAL_PATH("Signal path")
+  UPDATES("Updates"), EQUALIZER("Equalizer"), DEVICE_PROFILES("Device profiles"), SIGNAL_PATH("Signal path"),
+  ADVANCED_AUDIO("Advanced audio")
 }
 
 private fun pageIcon(page:Page):ImageVector = when(page) {
@@ -73,6 +74,7 @@ private fun pageIcon(page:Page):ImageVector = when(page) {
   Page.EQUALIZER -> Icons.Rounded.Equalizer
   Page.DEVICE_PROFILES -> Icons.Rounded.Headphones
   Page.SIGNAL_PATH -> Icons.Rounded.AccountTree
+  Page.ADVANCED_AUDIO -> Icons.Rounded.GraphicEq
 }
 
 class MainActivity : ComponentActivity() {
@@ -99,7 +101,8 @@ class MainActivity : ComponentActivity() {
         audioParent = page
         page = next
       }
-      val isAudioPage = page == Page.EQUALIZER || page == Page.DEVICE_PROFILES || page == Page.SIGNAL_PATH
+      val isAudioPage = page == Page.EQUALIZER || page == Page.DEVICE_PROFILES ||
+        page == Page.SIGNAL_PATH || page == Page.ADVANCED_AUDIO
       BackHandler(enabled = page != Page.HOME && page != Page.SETTINGS) {
         page = if (isAudioPage) audioParent else Page.SETTINGS
       }
@@ -135,7 +138,8 @@ class MainActivity : ComponentActivity() {
         if (settings.profile == AudioProfile.PURE) List(SystemEqCurveBuilder.BAND_COUNT) { 0f }
         else status.eqResponse ?: SystemEqCurveBuilder.configured(tone, manual,
           SystemEqCurveBuilder.bassGain(settings, activeRoute, mediaVolume), settings.preampDb,
-          allowBoost = false).let { curve -> curve.bands.map { it.gainDb + curve.inputGainDb } }
+          allowBoost = false, correction = store.routeCorrection(activeRoute)).let {
+            curve -> curve.bands.map { it.gainDb + curve.inputGainDb } }
       }
       fun update(next: EngineSettings) {
         settings = next
@@ -334,13 +338,20 @@ class MainActivity : ComponentActivity() {
                     update(settings.copy(profile = AudioProfile.AUTO,
                       manualBands = if (boundBands == null) bands else settings.manualBands))
                   })
-                Page.SIGNAL_PATH -> SignalPathScreen(status, output, settings) {
-                  update(settings.copy(peakGuard = it))
-                }
+                Page.SIGNAL_PATH -> SignalPathScreen(status, output, settings) { update(it) }
+                Page.ADVANCED_AUDIO -> AdvancedAudioScreen(
+                  route = activeRoute, active = status.processing,
+                  correction = store.routeCorrection(activeRoute),
+                  onSave = { profile ->
+                    store.saveRouteCorrection(activeRoute, profile)
+                    update(settings)
+                  })
+
                 Page.SETTINGS -> {
                   MenuRow("Equalizer", "10-band controls · 31-band processing", Icons.Rounded.Equalizer) { openAudioPage(Page.EQUALIZER) }
                   MenuRow("Device profiles", "Output details and saved presets", Icons.Rounded.Headphones) { openAudioPage(Page.DEVICE_PROFILES) }
                   MenuRow("Signal path", "Processing stages and peak limiter", Icons.Rounded.AccountTree) { openAudioPage(Page.SIGNAL_PATH) }
+                  MenuRow("Advanced audio", "Parametric EQ · AutoEQ · compressor · PCM", Icons.Rounded.GraphicEq) { openAudioPage(Page.ADVANCED_AUDIO) }
                   MenuRow("ADB connection", "Pairing, recovery and TCP/5555", Icons.Rounded.SettingsInputAntenna) { page = Page.ADB_CONNECTION }
                   HorizontalDivider()
                   MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",

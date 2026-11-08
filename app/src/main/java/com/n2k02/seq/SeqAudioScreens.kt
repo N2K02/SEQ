@@ -302,13 +302,14 @@ internal fun routeIcon(route: RouteKind) = when (route) {
 
 @Composable
 internal fun SignalPathScreen(status: EngineStatus, output: String, settings: EngineSettings,
-  onLimiter: (Boolean) -> Unit) {
+  onSettings: (EngineSettings) -> Unit) {
   val oem = status.globalActive && !status.limiterAvailable
   val stages = buildList {
     add(if (settings.allMedia) "Android output mix" else "Compatible app session")
     if (settings.enabled && settings.profile != AudioProfile.PURE) {
       if (!oem) add("Input headroom")
       add(if (oem) "OEM equalizer" else "31-band EQ")
+      if (!oem && settings.compressorEnabled) add("3-band compressor")
       if (!oem && settings.peakGuard) add("Peak limiter")
     }
     add("Output")
@@ -344,12 +345,30 @@ internal fun SignalPathScreen(status: EngineStatus, output: String, settings: En
           style = MaterialTheme.typography.bodySmall)
       }
       Switch(checked = settings.peakGuard && !oem, enabled = !oem,
-        onCheckedChange = onLimiter, modifier = Modifier.semantics { contentDescription = "Peak limiter" })
+        onCheckedChange = { onSettings(settings.copy(peakGuard = it)) },
+        modifier = Modifier.semantics { contentDescription = "Peak limiter" })
     }
   }
   AudioCard {
-    Text("Multiband compressor", style = MaterialTheme.typography.titleMedium)
-    Text("Concept", style = MaterialTheme.typography.bodySmall)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+        Text("Multiband compression", style = MaterialTheme.typography.titleMedium)
+        Text(if (oem) "Unavailable with OEM EQ" else "Gentle 3-band dynamics; off by default",
+          style = MaterialTheme.typography.bodySmall)
+      }
+      Switch(checked = settings.compressorEnabled && !oem, enabled = !oem,
+        onCheckedChange = { onSettings(settings.copy(compressorEnabled = it)) })
+    }
+    if (settings.compressorEnabled && !oem) {
+      OutputSlider("Ratio", settings.compressorRatio, 1f..4f,
+        { String.format(Locale.ROOT, "%.1f:1", it) }) {
+        onSettings(settings.copy(compressorRatio = it))
+      }
+      OutputSlider("Threshold", settings.compressorThresholdDb, -36f..-6f,
+        { String.format(Locale.ROOT, "%.0f dBFS", it) }) {
+        onSettings(settings.copy(compressorThresholdDb = it))
+      }
+    }
   }
 }
 
