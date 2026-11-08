@@ -2,6 +2,7 @@ package com.n2k02.seq.audio
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.util.concurrent.CopyOnWriteArrayList
+import android.util.Log
 
 data class EngineStatus(
   val running: Boolean = false,
@@ -24,6 +25,9 @@ object SeqRuntime {
   fun log(message: String) {
     val safe = message.take(180).replace(Regex("[\\r\\n]"), " ")
     ring.add(safe)
+    // Allows device Logcat inspection after a tester reports a failure.
+    // Callers must log decisions/status only, never raw audio or ADB command output.
+    Log.i("SEQ-Audio", safe)
     while (ring.size > 80) ring.removeAt(0)
   }
   fun logs(): List<String> = ring.toList()

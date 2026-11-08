@@ -110,6 +110,7 @@ class SeqSystemEffect private constructor(
   /** Animate filter changes over 200 ms without blocking the playback thread. */
   private fun program(tuning: Tuning) {
     cancelTransition()
+    SeqRuntime.log("DSP update engine=$engine correction=${tuning.correction?.filters?.size ?: 0} compressor=${tuning.compressorEnabled} peakGuard=${tuning.peakGuard}")
     dynamics?.let { dp ->
       val target = SystemEqCurveBuilder.configured(tuning.tone, tuning.manualBands, tuning.bassDb,
         tuning.preampDb, allowBoost = tuning.peakGuard, correction = tuning.correction)
@@ -162,6 +163,7 @@ class SeqSystemEffect private constructor(
           else { pending = null; programmedCurve = target }
         }
       }
+      SeqRuntime.log("Dynamics EQ transition scheduled 200ms")
       pending = tick
       main.post(tick)
       return
@@ -208,6 +210,7 @@ class SeqSystemEffect private constructor(
           else { pending = null; lastOemLevels = target }
         }
       }
+      SeqRuntime.log("OEM EQ transition scheduled 200ms")
       pending = tick
       main.post(tick)
     }
