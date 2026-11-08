@@ -21,6 +21,14 @@ class SeqAdbWorkerLifecycleContractTest {
    assertTrue(worker.contains("finally { client.disposeAndAwait() }"))
    assertTrue(worker.contains("catch(cancelled:CancellationException) { throw cancelled }"))
  }
+ @Test fun workerCannotDisconnectForegroundOwnerOnCompletion() {
+   val client=source("LocalAdbDiagnostics.kt")
+   val cleanup=client.substringAfter("suspend fun recoverOnceForWorker()")
+     .substringBefore("suspend fun disposeAndAwait()")
+   assertTrue(cleanup.contains("sharedCore.releaseService()"))
+   assertTrue(cleanup.contains("if (!visible && active?.isPageActive() != true)"))
+   assertTrue(cleanup.contains("sharedCore.disconnectIdle()"))
+ }
  @Test fun noParallelDiscoveryOrWatchdogInSeqFacade() {
    val client=source("LocalAdbDiagnostics.kt")
    assertFalse(client.contains("SeqAdbDiscovery("))
