@@ -59,7 +59,7 @@ internal object SharedAdbHostAdapter {
         return adb
     }
 
-    private class Preferences(context: Context) : AdbPreferenceStore {
+    private class Preferences(private val context: Context) : AdbPreferenceStore {
         private val prefs = SeqAdbPreferences(context)
         override fun enabled(option: AdbOption) = when (option) {
             AdbOption.AUTO_PAIR -> prefs.autoPairCode
