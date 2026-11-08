@@ -19,6 +19,7 @@ class SettingsStore(context: Context) {
       manualBands = SystemEqCurveBuilder.parseManual(prefs.getString("manual_bands", null)),
       bassBoost = readLevel("bass_boost", 0f, 0f..1f),
       preampDb = readLevel("preamp_db", 0f, -12f..6f),
+      soundMode = runCatching { SoundMode.valueOf(prefs.getString("sound_mode", SoundMode.NATURAL.name) ?: "") }.getOrDefault(SoundMode.NATURAL),
       dynamicBass = prefs.getBoolean("dynamic_bass", false),
       bassIntensity = readLevel("bass_intensity", 0.35f, 0f..1f)
     )
@@ -29,6 +30,7 @@ class SettingsStore(context: Context) {
       .putBoolean("peak_guard",s.peakGuard)
       .putString("manual_bands", s.manualBands?.joinToString(","))
       .putFloat("bass_boost", s.bassBoost).putFloat("preamp_db", s.preampDb)
+      .putString("sound_mode", s.soundMode.name)
       .putBoolean("dynamic_bass", s.dynamicBass).putFloat("bass_intensity", s.bassIntensity)
       .putBoolean("all_media",s.allMedia).putBoolean("loudness",s.loudness).apply()
   }
