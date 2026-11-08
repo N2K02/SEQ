@@ -27,7 +27,7 @@ object SeqRuntime {
     ring.add(safe)
     // Allows device Logcat inspection after a tester reports a failure.
     // Callers must log decisions/status only, never raw audio or ADB command output.
-    Log.i("SEQ-Audio", safe)
+    runCatching { Log.i("SEQ-Audio", safe) }
     while (ring.size > 80) ring.removeAt(0)
   }
   fun logs(): List<String> = ring.toList()
