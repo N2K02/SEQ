@@ -93,8 +93,9 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
     fun isPageActive(): Boolean = visible
 
     @Synchronized fun enterPage(fromUser: Boolean = true) {
-        if (shutDown || (!fromUser && preferences.manuallyStopped) || visible) return
-        if (fromUser) preferences.markUserOpened()
+        if (shutDown || visible) return
+        // MainActivity records a real foreground app launch. Merely navigating
+        // between Settings pages must not clear an explicit ADB Stop.
         visible = true
         sharedCore.enterPage()
     }
