@@ -86,7 +86,12 @@ class SeqSystemEffect private constructor(
   private var pending: Runnable? = null
   private var lastOemLevels: List<Short>? = null
   private var closed = false
-  private fun cancelTransition() { pending?.let(main::removeCallbacks); pending = null }
+  private var transitionCount = 0
+  private var canceledTransitions = 0
+  private fun cancelTransition() {
+    pending?.let { main.removeCallbacks(it); canceledTransitions++ }
+    pending = null
+  }
   var response: List<Float>? = null
     private set
 
@@ -141,12 +146,14 @@ class SeqSystemEffect private constructor(
         return
       }
       if (old == target) return
+      transitionCount++
+      SeqRuntime.log("DSP curve input=${target.inputGainDb}dB peak=${target.bands.maxOf { it.gainDb }}dB transitions=$transitionCount canceled=$canceledTransitions")
       var step = 0
       val tick = object : Runnable {
         override fun run() {
           if (closed || !hasControl) { pending = null; return }
           step++
-          val fraction = step / 10f
+          val fraction = step / 5f
           val curve = SystemEqCurve(
             old.inputGainDb + (target.inputGainDb - old.inputGainDb) * fraction,
             old.bands.zip(target.bands) { a, b ->
@@ -159,11 +166,11 @@ class SeqSystemEffect private constructor(
             response = curve.bands.map { it.gainDb + curve.inputGainDb }
           }.isSuccess
           if (!success) { invalidateTuning(); return }
-          if (step < 10) { pending = this; main.postDelayed(this, 20L) }
+          if (step < 5) { pending = this; main.postDelayed(this, 40L) }
           else { pending = null; programmedCurve = target }
         }
       }
-      SeqRuntime.log("Dynamics EQ transition scheduled 200ms")
+      SeqRuntime.log("Dynamics EQ transition scheduled 200ms (5 updates)")
       pending = tick
       main.post(tick)
       return
@@ -210,7 +217,7 @@ class SeqSystemEffect private constructor(
           else { pending = null; lastOemLevels = target }
         }
       }
-      SeqRuntime.log("OEM EQ transition scheduled 200ms")
+      SeqRuntime.log("OEM EQ transition scheduled 200ms (5 updates)")
       pending = tick
       main.post(tick)
     }
