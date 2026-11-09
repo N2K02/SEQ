@@ -28,9 +28,9 @@ class SeqAdbUiContractTest {
    assertFalse(ui.contains("MenuRow(\"Diagnostics\""))
    assertTrue(ui.contains("Page.ADB_CONNECTION -> SeqAdbConnectionScreen("))
    assertTrue(ui.contains("val adbState by adb.sharedCore.state.collectAsState()"))
-   assertTrue(ui.contains("if (adbState.connected) \"ADB connected\" else \"ADB disconnected\""))
-   assertTrue(ui.indexOf("AudioCard {", ui.indexOf("Page.HOME -> {")) <
-     ui.indexOf("AdbHomeSetupPage(", ui.indexOf("Page.HOME -> {")))
+   assertTrue(ui.contains("if (adbState.connected) Text(\"ADB connected\""))
+   assertFalse(ui.contains("AdbHomeSetupPage("))
+   assertTrue(ui.contains("SimpleEqualizerScreen("))
    assertTrue(ui.contains("permissionRevision++"))
  }
  @Test fun automaticAdbDefaultsMatchVrec() {
