@@ -1,5 +1,15 @@
 # Sound quality and efficiency validation
 
-Automated JVM tests: SEQ Auto balance per output, adaptive correction bounds and smoothing, Visualizer spectrum maths, loudness compensation, 31-band curve builder and headroom, route/session/all-media policies.
+Experimental improvements: 10-band default interface; optional 31-band precision controls;
+31-band DynamicsProcessing internally where supported; smooth 200 ms EQ updates on
+platform and OEM fallbacks; conservative preamp headroom; controlled bass; four
+tone modes (Natural, Smooth, Deep Bass, Immersive). Immersive is a tonal
+character, not artificial phase widening.
 
-On-device checks still required: audible SEQ Auto vs Pure at matched volume per output (speaker, wired, Bluetooth, Android Auto), no pumping on bass-heavy tracks, battery drain during one hour of playback with adaptive analysis, and behaviour when another EQ app holds the output mix.
+JVM tests cover tone modes, EQ transitions/headroom, manual EQ, routing and playback.
+
+Still requires physical-device tests before merging: test preset changes and slider changes
+during continuous audio on phone speaker, wired headphones, Bluetooth and Android Auto.
+Check for clicks, pumping, distortion, route-change jumps, background playback and
+battery drain. Compare with Pure at matched loudness. Other EQ apps and bypassing
+Android mixers can affect compatibility; do not claim universal true-peak limiting.

@@ -19,6 +19,7 @@ object SystemEqCurveBuilder {
   /** 1/3-octave resolution across 20 Hz – 20 kHz. */
   const val BAND_COUNT = 31
   private const val LOW_HZ = 20.0
+  private const val SAFETY_MARGIN_DB = 0.5f
   private const val SPAN = 1000.0 // 20 Hz × 1000 = 20 kHz
 
   fun cutoffHz(index: Int, count: Int = BAND_COUNT): Double = LOW_HZ * SPAN.pow((index + 1) / count.toDouble())
@@ -99,13 +100,29 @@ object SystemEqCurveBuilder {
     val boostBefore = curve.bands.maxOf { it.gainDb }.coerceAtLeast(0f)
     val boostAfter = bands.maxOf { it.gainDb }.coerceAtLeast(0f)
     val headroom = curve.inputGainDb - (boostAfter - boostBefore).coerceAtLeast(0f)
-    return SystemEqCurve(headroom + if (allowBoost) preampDb else preampDb.coerceAtMost(0f), bands)
+    val requested = headroom + if (allowBoost) preampDb else preampDb.coerceAtMost(0f)
+    val safe = minOf(requested, -boostAfter - SAFETY_MARGIN_DB)
+    return SystemEqCurve(if (boostAfter > 0f || requested > 0f) safe else requested, bands)
   }
 
   fun configured(tone: Tone, manualBands: List<Float>?, bassDb: Float, preampDb: Float,
-    allowBoost: Boolean): SystemEqCurve = withOutputControls(
-    manualBands?.let(::manual) ?: build(tone, null), bassDb, preampDb, allowBoost
-  )
+    allowBoost: Boolean, correction: HeadphoneProfile? = null): SystemEqCurve {
+    val base = manualBands?.let(::manual) ?: build(tone, null)
+    val combined = if (correction == null) base else {
+      val bands = base.bands.mapIndexed { i, band ->
+        val offset = correction.filters.sumOf { EqResponse.db(precisionCentres[i], it) }.toFloat()
+        band.copy(gainDb = band.gainDb + offset)
+      }
+      val correctionBoost = (0..400).maxOf { i ->
+        correction.filters.sumOf { EqResponse.db(LOW_HZ * SPAN.pow(i / 400.0), it) }
+      }.coerceAtLeast(0.0).toFloat()
+      val peak = bands.maxOf { it.gainDb }.coerceAtLeast(0f)
+      val safeInput = minOf(base.inputGainDb - correctionBoost,
+        correction.preampDb.toFloat(), -peak)
+      SystemEqCurve(safeInput, bands)
+    }
+    return withOutputControls(combined, bassDb, preampDb, allowBoost)
+  }
 
   /** Reserve headroom for either curve while Android applies band parameters individually. */
   fun transitionGain(previous: SystemEqCurve?, next: SystemEqCurve): Float {
@@ -116,8 +133,8 @@ object SystemEqCurveBuilder {
 
   fun bassGain(s: EngineSettings, route: RouteKind, volume: Float): Float {
     val remaining = 1f - volume.coerceIn(0f, 1f)
-    val fixed = if (route == RouteKind.SPEAKER) 2f * remaining else 6f
-    return s.bassBoost * fixed + if (s.dynamicBass) s.bassIntensity * 3f * remaining else 0f
+    val fixed = if (route == RouteKind.SPEAKER) 2f * remaining else 5f
+    return s.bassBoost * fixed + if (s.dynamicBass) s.bassIntensity * 2f * remaining else 0f
   }
 
   /**

@@ -22,10 +22,15 @@ class SeqAdbUiContractTest {
    assertFalse(screens.contains("Connection & security"))
    assertFalse(screens.contains("Enter pairing code"))
  }
- @Test fun settingsAndDiagnosticsRemainSeparatePages() {
+ @Test fun diagnosticsIsRemovedAndHomeShowsLiveAdbBadge() {
    val ui=source("MainActivity.kt")
-   assertTrue(ui.contains("Page.DIAGNOSTICS -> SeqAdbDiagnosticsScreen(adb)"))
+   assertFalse(ui.contains("Page.DIAGNOSTICS"))
+   assertFalse(ui.contains("MenuRow(\"Diagnostics\""))
    assertTrue(ui.contains("Page.ADB_CONNECTION -> SeqAdbConnectionScreen("))
+   assertTrue(ui.contains("val adbState by adb.sharedCore.state.collectAsState()"))
+   assertTrue(ui.contains("if (adbState.connected) Text(\"ADB connected\""))
+   assertFalse(ui.contains("AdbHomeSetupPage("))
+   assertTrue(ui.contains("SimpleEqualizerScreen("))
    assertTrue(ui.contains("permissionRevision++"))
  }
  @Test fun automaticAdbDefaultsMatchVrec() {

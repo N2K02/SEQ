@@ -24,7 +24,8 @@ class LoudnessCompensationTest {
     val tone = Tone(bass = 6f)
     val base = SystemEqCurveBuilder.configured(tone, null, 0f, 0f, allowBoost = true)
     val adjusted = SystemEqCurveBuilder.configured(tone, null, 0f, 0.01f, allowBoost = true)
-    assertEquals(base.inputGainDb + 0.01f, adjusted.inputGainDb, 0.001f)
+    assertTrue(adjusted.inputGainDb <= base.inputGainDb)
+    assertTrue(adjusted.bands.all { it.gainDb + adjusted.inputGainDb <= 0f })
     val p = HeadphoneProfile("x", -7.0, listOf(EqFilter(FilterKind.PEAK, 1000.0, 3.0, 1.0)))
     assertEquals(-7f, SystemEqCurveBuilder.build(Tone(), p).inputGainDb, 0.01f)
   }
@@ -32,9 +33,9 @@ class LoudnessCompensationTest {
   @Test fun transitionProtectsBothCurvesBeforeFinalPreamp() {
     val boosted = SystemEqCurveBuilder.configured(Tone(), List(10) { 6f }, 0f, 4f, allowBoost = true)
     val flat = SystemEqCurveBuilder.manual(List(10) { 0f })
-    assertEquals(-6f, SystemEqCurveBuilder.transitionGain(flat, boosted), 0f)
-    assertEquals(-6f, SystemEqCurveBuilder.transitionGain(boosted, flat), 0f)
-    assertEquals(-6f, SystemEqCurveBuilder.transitionGain(null, boosted), 0f)
+    assertEquals(-6.5f, SystemEqCurveBuilder.transitionGain(flat, boosted), 0f)
+    assertEquals(-6.5f, SystemEqCurveBuilder.transitionGain(boosted, flat), 0f)
+    assertEquals(-6.5f, SystemEqCurveBuilder.transitionGain(null, boosted), 0f)
   }
 
   @Test fun manualOutputPresetSuppressesAdaptiveAnalysis() {

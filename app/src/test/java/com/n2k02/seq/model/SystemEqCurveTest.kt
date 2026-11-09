@@ -95,18 +95,31 @@ class SystemEqCurveTest {
   @Test fun outputPreampRequiresLimiterForPositiveGain() {
     val curve = SystemEqCurveBuilder.manual(List(10) { 0f })
     assertEquals(0f, SystemEqCurveBuilder.withOutputControls(curve, 0f, 6f, false).inputGainDb, 0f)
-    assertEquals(6f, SystemEqCurveBuilder.withOutputControls(curve, 0f, 6f, true).inputGainDb, 0f)
+    assertEquals(-0.5f, SystemEqCurveBuilder.withOutputControls(curve, 0f, 6f, true).inputGainDb, 0f)
     assertEquals(-5f, SystemEqCurveBuilder.withOutputControls(curve, 0f, -5f, false).inputGainDb, 0f)
   }
 
   @Test fun bassAdjustmentKeepsHeadroomAndTapersOnPhoneSpeaker() {
     val settings = EngineSettings(bassBoost = 1f, dynamicBass = true, bassIntensity = 1f)
-    assertEquals(5f, SystemEqCurveBuilder.bassGain(settings, RouteKind.SPEAKER, 0f), 0f)
+    assertEquals(4f, SystemEqCurveBuilder.bassGain(settings, RouteKind.SPEAKER, 0f), 0f)
     assertEquals(0f, SystemEqCurveBuilder.bassGain(settings, RouteKind.SPEAKER, 1f), 0f)
-    assertEquals(6f, SystemEqCurveBuilder.bassGain(settings, RouteKind.WIRED, 1f), 0f)
+    assertEquals(5f, SystemEqCurveBuilder.bassGain(settings, RouteKind.WIRED, 1f), 0f)
     val curve = SystemEqCurveBuilder.manual(List(10) { 2f })
     val boosted = SystemEqCurveBuilder.withOutputControls(curve, 5f, 0f, false)
     assertTrue(boosted.bands.first().gainDb > boosted.bands.last().gainDb)
     assertTrue(boosted.bands.all { it.gainDb + boosted.inputGainDb <= 0f })
+  }
+
+  @Test fun soundModesAreDistinctAndNaturalIsNeutral() {
+    val tone = Tone(bass = 1f, mid = 0.5f, treble = -0.25f)
+    assertEquals(tone, SoundModeTuning.apply(tone, SoundMode.NATURAL))
+    assertTrue(SoundModeTuning.apply(tone, SoundMode.SMOOTH).treble < tone.treble)
+    assertTrue(SoundModeTuning.apply(tone, SoundMode.DEEP_BASS).bass > tone.bass)
+    assertTrue(SoundModeTuning.apply(tone, SoundMode.IMMERSIVE).mid < tone.mid)
+  }
+
+  @Test fun positivePreampAndBassCannotExceedHeadroom() {
+    val curve = SystemEqCurveBuilder.configured(Tone(), List(10) { 3f }, 5f, 6f, true)
+    assertTrue(curve.bands.all { it.gainDb + curve.inputGainDb <= -0.49f })
   }
 }

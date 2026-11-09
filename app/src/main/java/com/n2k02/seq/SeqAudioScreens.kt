@@ -103,14 +103,14 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
   onApply: (List<Float>) -> Unit, onSave: (String, List<Float>) -> Unit) {
   val compactCount = SystemEqCurveBuilder.COMPACT_BAND_COUNT
   val precisionCount = SystemEqCurveBuilder.BAND_COUNT
-  var count by rememberSaveable { mutableIntStateOf(initial.size) }
+  var count by rememberSaveable { mutableIntStateOf(compactCount) }
   var compact by rememberSaveable {
-    mutableStateOf(if (initial.size == compactCount) ArrayList(initial) else null)
+    mutableStateOf(ArrayList(if (initial.size == compactCount) initial else SystemEqCurveBuilder.resample(initial, compactCount)))
   }
   var precision by rememberSaveable {
     mutableStateOf(if (initial.size == precisionCount) ArrayList(initial) else null)
   }
-  val bands = if (count == compactCount) checkNotNull(compact) else checkNotNull(precision)
+  val bands = if (count == compactCount) compact else checkNotNull(precision)
   fun updateBands(next: List<Float>) {
     if (count == compactCount) compact = ArrayList(next) else precision = ArrayList(next)
   }
@@ -119,12 +119,10 @@ internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
   val limit = SystemEqCurveBuilder.MANUAL_LIMIT_DB
   AudioCard {
     Text("Equalizer bands", style = MaterialTheme.typography.titleLarge)
+    Text("10 easy controls, with 31-band processing. Advanced editing remains available.", style = MaterialTheme.typography.bodySmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       listOf(compactCount, precisionCount).forEach { choice ->
         FilterChip(selected = count == choice, onClick = {
-          if (choice == compactCount && compact == null) {
-            compact = ArrayList(SystemEqCurveBuilder.resample(bands, compactCount))
-          }
           if (choice == precisionCount && precision == null) {
             precision = ArrayList(SystemEqCurveBuilder.resample(bands, precisionCount))
           }
@@ -304,13 +302,14 @@ internal fun routeIcon(route: RouteKind) = when (route) {
 
 @Composable
 internal fun SignalPathScreen(status: EngineStatus, output: String, settings: EngineSettings,
-  onLimiter: (Boolean) -> Unit) {
+  onSettings: (EngineSettings) -> Unit) {
   val oem = status.globalActive && !status.limiterAvailable
   val stages = buildList {
     add(if (settings.allMedia) "Android output mix" else "Compatible app session")
     if (settings.enabled && settings.profile != AudioProfile.PURE) {
       if (!oem) add("Input headroom")
       add(if (oem) "OEM equalizer" else "31-band EQ")
+      if (!oem && settings.compressorEnabled) add("3-band compressor")
       if (!oem && settings.peakGuard) add("Peak limiter")
     }
     add("Output")
@@ -346,12 +345,30 @@ internal fun SignalPathScreen(status: EngineStatus, output: String, settings: En
           style = MaterialTheme.typography.bodySmall)
       }
       Switch(checked = settings.peakGuard && !oem, enabled = !oem,
-        onCheckedChange = onLimiter, modifier = Modifier.semantics { contentDescription = "Peak limiter" })
+        onCheckedChange = { onSettings(settings.copy(peakGuard = it)) },
+        modifier = Modifier.semantics { contentDescription = "Peak limiter" })
     }
   }
   AudioCard {
-    Text("Multiband compressor", style = MaterialTheme.typography.titleMedium)
-    Text("Concept", style = MaterialTheme.typography.bodySmall)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+        Text("Multiband compression", style = MaterialTheme.typography.titleMedium)
+        Text(if (oem) "Unavailable with OEM EQ" else "Gentle 3-band dynamics; off by default",
+          style = MaterialTheme.typography.bodySmall)
+      }
+      Switch(checked = settings.compressorEnabled && !oem, enabled = !oem,
+        onCheckedChange = { onSettings(settings.copy(compressorEnabled = it)) })
+    }
+    if (settings.compressorEnabled && !oem) {
+      OutputSlider("Ratio", settings.compressorRatio, 1f..4f,
+        { String.format(Locale.ROOT, "%.1f:1", it) }) {
+        onSettings(settings.copy(compressorRatio = it))
+      }
+      OutputSlider("Threshold", settings.compressorThresholdDb, -36f..-6f,
+        { String.format(Locale.ROOT, "%.0f dBFS", it) }) {
+        onSettings(settings.copy(compressorThresholdDb = it))
+      }
+    }
   }
 }
 
@@ -360,5 +377,91 @@ internal fun AudioCard(content: @Composable ColumnScope.() -> Unit) {
   Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
     modifier = Modifier.fillMaxWidth()) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+  }
+}
+
+/** One-screen equalizer. Every edit is applied and saved after a short idle debounce. */
+@Composable
+internal fun SimpleEqualizerScreen(
+  initial: List<Float>,
+  selectedMode: SoundMode,
+  custom: Boolean,
+  bassBoost: Float,
+  enabled: Boolean,
+  onBands: (List<Float>) -> Unit,
+  onMode: (SoundMode) -> Unit,
+  onBass: (Float) -> Unit
+) {
+  val count = SystemEqCurveBuilder.COMPACT_BAND_COUNT
+  var gains by remember(initial) {
+    mutableStateOf(SystemEqCurveBuilder.resample(initial, count))
+  }
+  var edited by remember(initial) { mutableStateOf(false) }
+  val latestOnBands by rememberUpdatedState(onBands)
+  LaunchedEffect(gains, edited) {
+    if (edited) {
+      kotlinx.coroutines.delay(120)
+      latestOnBands(gains.toList())
+    }
+  }
+  AudioCard {
+    Text("Equalizer", style = MaterialTheme.typography.titleLarge)
+    Text("Choose a sound style", style = MaterialTheme.typography.bodySmall)
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      SoundMode.entries.forEach { mode ->
+        FilterChip(selected = selectedMode == mode && !custom && !edited,
+          onClick = {
+            edited = false
+            onMode(mode)
+          }, label = { Text(mode.title) })
+      }
+    }
+    Text(if (custom) "Custom sound • saved for this output" else "Fine tune • 10 bands",
+      style = MaterialTheme.typography.titleMedium)
+    val centres = SystemEqCurveBuilder.centres(count)
+    Row(Modifier.fillMaxWidth()) {
+      gains.forEachIndexed { index, value ->
+        val frequency = centres[index]
+        val label = if (frequency < 1000f) frequency.roundToInt().toString()
+          else "${(frequency / 1000f).roundToInt()}k"
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+          Slider(
+            value = value,
+            onValueChange = { level ->
+              gains = gains.toMutableList().also {
+                it[index] = (level * 2f).roundToInt() / 2f
+              }
+              edited = true
+            },
+            valueRange = -SystemEqCurveBuilder.MANUAL_LIMIT_DB..SystemEqCurveBuilder.MANUAL_LIMIT_DB,
+            modifier = Modifier.width(44.dp).height(136.dp)
+              .semantics { contentDescription = "$label Hz equalizer" }
+              .graphicsLayer { rotationZ = -90f }
+              .layout { measurable, constraints ->
+                val placeable = measurable.measure(Constraints.fixed(constraints.maxHeight, constraints.maxWidth))
+                layout(constraints.maxWidth, constraints.maxHeight) {
+                  placeable.place((constraints.maxWidth - placeable.width) / 2,
+                    (constraints.maxHeight - placeable.height) / 2)
+                }
+              }
+          )
+          Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
+      }
+    }
+    Text("Your adjustments apply automatically.", style = MaterialTheme.typography.bodySmall)
+  }
+  AudioCard {
+    Text("Bass", style = MaterialTheme.typography.titleMedium)
+    var bass by remember(bassBoost) { mutableFloatStateOf(bassBoost) }
+    val latestBass by rememberUpdatedState(onBass)
+    LaunchedEffect(bass) {
+      if (bass != bassBoost) {
+        kotlinx.coroutines.delay(120)
+        latestBass(bass)
+      }
+    }
+    Slider(value = bass, onValueChange = { bass = it }, valueRange = 0f..1f,
+      enabled = enabled, modifier = Modifier.semantics { contentDescription = "Bass level" })
   }
 }

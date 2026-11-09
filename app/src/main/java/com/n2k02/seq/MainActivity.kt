@@ -61,19 +61,15 @@ private val accent: Color @Composable get() = MaterialTheme.colorScheme.primary
 private val background: Color @Composable get() = MaterialTheme.colorScheme.background
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
-  HOME("Home"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"), DIAGNOSTICS("Diagnostics"),
-  UPDATES("Updates"), EQUALIZER("Equalizer"), DEVICE_PROFILES("Device profiles"), SIGNAL_PATH("Signal path")
+  HOME("Equalizer"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"),
+  UPDATES("Updates")
 }
 
 private fun pageIcon(page:Page):ImageVector = when(page) {
   Page.HOME -> Icons.Rounded.Home
   Page.SETTINGS -> Icons.Rounded.Settings
   Page.ADB_CONNECTION -> Icons.Rounded.SettingsInputAntenna
-  Page.DIAGNOSTICS -> Icons.Rounded.MonitorHeart
   Page.UPDATES -> Icons.Rounded.SystemUpdate
-  Page.EQUALIZER -> Icons.Rounded.Equalizer
-  Page.DEVICE_PROFILES -> Icons.Rounded.Headphones
-  Page.SIGNAL_PATH -> Icons.Rounded.AccountTree
 }
 
 class MainActivity : ComponentActivity() {
@@ -94,19 +90,14 @@ class MainActivity : ComponentActivity() {
     setContent {
       var settings by remember { mutableStateOf(store.read()) }
       var page by rememberSaveable { mutableStateOf(Page.HOME) }
-      var audioParent by rememberSaveable { mutableStateOf(Page.HOME) }
-      var presets by remember { mutableStateOf(store.presets()) }
-      fun openAudioPage(next: Page) {
-        audioParent = page
-        page = next
-      }
-      val isAudioPage = page == Page.EQUALIZER || page == Page.DEVICE_PROFILES || page == Page.SIGNAL_PATH
+      var resetRevision by remember { mutableIntStateOf(0) }
+      var routeRevision by remember { mutableIntStateOf(0) }
       BackHandler(enabled = page != Page.HOME && page != Page.SETTINGS) {
-        page = if (isAudioPage) audioParent else Page.SETTINGS
+        page = Page.SETTINGS
       }
       DisposableEffect(page) {
-        if((page==Page.DIAGNOSTICS || page==Page.ADB_CONNECTION)) adb.enterPage()
-        onDispose { if((page==Page.DIAGNOSTICS || page==Page.ADB_CONNECTION)) adb.leavePage() }
+        if(page==Page.ADB_CONNECTION) adb.enterPage()
+        onDispose { if(page==Page.ADB_CONNECTION) adb.leavePage() }
       }
       val updateStatus by SeqUpdater.controller.status.collectAsState()
       val experimentalEnabled by SeqUpdater.experimentalEnabled.collectAsState()
@@ -116,27 +107,16 @@ class MainActivity : ComponentActivity() {
       val mediaActive by SeqPlaybackMonitor.mediaActive.collectAsState()
       val carMode by SeqPlaybackMonitor.carMode.collectAsState()
       val mediaVolume by SeqPlaybackMonitor.mediaVolume.collectAsState()
-      val adaptiveOn = remember(permissionRevision) { SeqAdaptiveAnalyzer.permitted(this@MainActivity) }
       val activeRoute = SeqRoute.kind(this, carMode)
       val output = SeqRoute.describe(this, carMode)
-      var bindingRevision by remember { mutableIntStateOf(0) }
-      val boundBands = remember(activeRoute, bindingRevision) { store.routeBands(activeRoute) }
-      val manual = boundBands ?: settings.manualBands
-      fun bindOutput(bands: List<Float>?) {
-        store.saveRouteBands(activeRoute, bands)
-        bindingRevision++
+      val activeCorrection = remember(activeRoute, resetRevision) { store.routeCorrection(activeRoute) }
+      val manual = remember(activeRoute, routeRevision, resetRevision) {
+        store.routeBands(activeRoute) ?: settings.manualBands
       }
-      val mode = if (settings.profile == AudioProfile.PURE) "Pure" else if (manual != null) "Manual" else "SEQ Auto"
-      val adaptiveTone by SeqAdaptiveAnalyzer.state.collectAsState()
+      val mode = if (manual != null) "Custom" else "Automatic"
       val tone = SeqRoute.tone(this, settings, carMode)
-      val autoBands = remember(tone, adaptiveTone) {
+      val autoBands = remember(tone) {
         SystemEqCurveBuilder.build(tone, null).bands.map { it.gainDb }
-      }
-      val response = remember(settings, status.eqResponse, tone, manual, activeRoute, mediaVolume) {
-        if (settings.profile == AudioProfile.PURE) List(SystemEqCurveBuilder.BAND_COUNT) { 0f }
-        else status.eqResponse ?: SystemEqCurveBuilder.configured(tone, manual,
-          SystemEqCurveBuilder.bassGain(settings, activeRoute, mediaVolume), settings.preampDb,
-          allowBoost = false).let { curve -> curve.bands.map { it.gainDb + curve.inputGainDb } }
       }
       fun update(next: EngineSettings) {
         settings = next
@@ -166,9 +146,9 @@ class MainActivity : ComponentActivity() {
                     tonalElevation = 0.dp,
                     windowInsets = WindowInsets(0, 0, 0, 0)
                   ) {
-                    NavigationBarItem(selected = page == Page.HOME || (isAudioPage && audioParent == Page.HOME), onClick = { page = Page.HOME },
+                    NavigationBarItem(selected = page == Page.HOME, onClick = { page = Page.HOME },
                       icon = { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
-                    NavigationBarItem(selected = page != Page.HOME && (!isAudioPage || audioParent == Page.SETTINGS), onClick = { page = Page.SETTINGS },
+                    NavigationBarItem(selected = page != Page.HOME, onClick = { page = Page.SETTINGS },
                       icon = {
                         N2K02UpdateBadgedIcon(updateStatus) {
                           Icon(Icons.Rounded.Settings, contentDescription = "Settings")
@@ -193,133 +173,92 @@ class MainActivity : ComponentActivity() {
               verticalArrangement = Arrangement.spacedBy(12.dp)) {
               when (page) {
                 Page.HOME -> {
-                  // Shared ADB owns discovery, automatic pairing and reconnect
-                  // while Home is visible; SEQ DSP remains independent.
-                  dev.n2k02.adb.core.AdbPageLifecycle(adb.sharedCore)
+                  // ADB is optional: media tuning works without pairing or diagnostics screens.
                   val adbState by adb.sharedCore.state.collectAsState()
-                  if (!adbState.connected) {
-                    dev.n2k02.adb.core.AdbHomeSetupPage(
-                      adb = adb.sharedCore,
-                      accessibilityEnabled = com.n2k02.seq.adb.SeqPairingAccessibilityService.isEnabled(this@MainActivity),
-                      onOpenAccessibility = {
-                        startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                      }
-                    )
-                  }
                   AudioCard {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                       Column(Modifier.weight(1f)) {
-                        Text("Audio engine", style = MaterialTheme.typography.titleLarge)
+                        Text("Sound", style = MaterialTheme.typography.titleLarge)
                         Text(when {
-                            status.globalActive -> "● Output mix effect enabled"
-                            status.effectAttached -> "● Effect attached"
-                            settings.enabled -> status.lastEvent
-                            else -> "Off"
-                          }, color = if (status.processing) accent else quiet)
+                          !settings.enabled -> "Off"
+                          status.processing -> "Sound enhancement active"
+                          else -> "On • " + status.lastEvent
+                        }, color = if (status.processing) accent else quiet,
+                          style = MaterialTheme.typography.bodySmall)
                       }
-                      Switch(checked = settings.enabled, onCheckedChange = {
-                        if (it) {
-                          // One prompt: notifications (engine) + output analysis for SEQ Auto.
-                          val wanted = buildList {
-                            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
-                            add(Manifest.permission.RECORD_AUDIO)
-                          }.filter { p -> checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED }
-                          if (wanted.isNotEmpty()) requestPermissions(wanted.toTypedArray(), 109)
+                      Switch(checked = settings.enabled, onCheckedChange = { on ->
+                        if (on && Build.VERSION.SDK_INT >= 33 &&
+                          checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                          requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 109)
                         }
-                        update(settings.copy(enabled = it))
+                        update(settings.copy(enabled = on, profile = AudioProfile.AUTO, allMedia = true))
                       })
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                      FilterChip(selected = mode == "SEQ Auto",
-                        onClick = {
-                          bindOutput(null)
-                          update(settings.copy(profile = AudioProfile.AUTO, manualBands = null))
-                        },
-                        label = { Text("SEQ Auto") }, modifier = Modifier.weight(1f))
-                      FilterChip(selected = settings.profile == AudioProfile.PURE,
-                        onClick = { update(settings.copy(profile = AudioProfile.PURE)) },
-                        label = { Text("Pure") }, modifier = Modifier.weight(1f))
-                    }
-                    if (mode == "Manual") Text("Manual tuning selected", color = accent)
-                    if (!adaptiveOn && settings.enabled && mode == "SEQ Auto") TextButton(onClick = {
-                      requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 110)
-                    }) { Text("Let SEQ adapt to your music") }
+                    Text(if (mediaActive) "Media playing • $output" else "Ready • $output",
+                      style = MaterialTheme.typography.bodyMedium)
+                    if (settings.enabled && !status.processing) Text(
+                      "Android may limit effects on some apps, offloaded audio or Android Auto outputs.",
+                      style = MaterialTheme.typography.bodySmall, color = quiet)
+                    if (adbState.connected) Text("ADB connected", color = accent,
+                      style = MaterialTheme.typography.labelSmall)
                   }
                   AudioCard {
-                    MenuRow(output, "Device details", routeIcon(activeRoute), card = true) {
-                      openAudioPage(Page.DEVICE_PROFILES)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                      Icon(Icons.Rounded.MusicNote, null, tint = accent)
+                      Spacer(Modifier.width(10.dp))
+                      Text(externalPlayer?.name ?: if (mediaActive) "Media is playing" else "Play music to start tuning",
+                        modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                    Text("Changes are saved automatically and follow your media output.",
+                      style = MaterialTheme.typography.bodySmall, color = quiet)
                   }
-                  AudioCard {
-                    Text(if (mode == "SEQ Auto") "Auto response" else "$mode response",
-                      style = MaterialTheme.typography.titleMedium)
-                    ResponseGraph(response, "Configured equalizer response preview")
-                    FilledTonalButton(onClick = { openAudioPage(Page.EQUALIZER) },
-                      modifier = Modifier.fillMaxWidth()) {
-                      Text("Open equalizer")
-                      Spacer(Modifier.width(6.dp))
-                      Icon(Icons.Rounded.ChevronRight, null)
-                    }
+                  key(activeRoute, resetRevision) {
+                    SimpleEqualizerScreen(
+                      initial = manual ?: SystemEqCurveBuilder.resample(autoBands,
+                        SystemEqCurveBuilder.COMPACT_BAND_COUNT),
+                      selectedMode = settings.soundMode,
+                      custom = manual != null,
+                      bassBoost = settings.bassBoost,
+                      enabled = settings.enabled,
+                      onBands = { bands ->
+                        store.saveRouteBands(activeRoute, bands)
+                        routeRevision++
+                        update(settings.copy(profile = AudioProfile.AUTO, allMedia = true,
+                          manualBands = null))
+                      },
+                      onMode = { sound ->
+                        store.saveRouteBands(activeRoute, null)
+                        routeRevision++
+                        update(settings.copy(profile = AudioProfile.AUTO, allMedia = true,
+                          soundMode = sound, manualBands = null))
+                      },
+                      onBass = { bass -> update(settings.copy(bassBoost = bass)) }
+                    )
                   }
-                  AudioCard {
-                    Text("Detected media", style = MaterialTheme.typography.titleMedium)
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                      horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                      val player = externalPlayer
-                      val icon = remember(player?.icon) { player?.icon?.asImageBitmap() }
-                      if (icon != null) Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(32.dp))
-                      else Icon(Icons.Rounded.MusicNote, null, tint = accent, modifier = Modifier.size(32.dp))
-                      Text(player?.name ?: if (mediaActive) "Media playing" else "No media playing",
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (!mediaListenerConnected) TextButton(onClick = {
-                      startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                    }) { Text("Allow notification access") }
-                  }
-                  AudioCard {
-                    MenuRow("Signal path", status.effectEngine.ifEmpty { status.lastEvent },
-                      Icons.Rounded.AccountTree, card = true) { openAudioPage(Page.SIGNAL_PATH) }
-                  }
-                }
-                Page.EQUALIZER -> key(activeRoute) {
-                  EqualizerScreen(manual ?: autoBands.map {
-                    it.coerceIn(-SystemEqCurveBuilder.MANUAL_LIMIT_DB, SystemEqCurveBuilder.MANUAL_LIMIT_DB)
-                  }, mode == "Manual", settings,
-                    positivePreamp = status.limiterAvailable && settings.peakGuard,
-                    compareEnabled = settings.enabled && settings.allMedia && settings.profile != AudioProfile.PURE,
-                    onCompare = { SeqGlobalEffect.compare(this@MainActivity, it) },
-                    onControls = { update(it) },
-                    onApply = { bands ->
-                      if (boundBands != null) bindOutput(bands)
-                      update(settings.copy(profile = AudioProfile.AUTO,
-                        manualBands = if (boundBands == null) bands else settings.manualBands))
+                  OutlinedButton(
+                    onClick = {
+                      store.resetSound()
+                      resetRevision++
+                      update(store.read().copy(enabled = settings.enabled,
+                        profile = AudioProfile.AUTO, allMedia = true))
                     },
-                    onSave = { name, bands ->
-                      store.savePreset(name, bands)
-                      presets = store.presets()
-                    })
-                }
-                Page.DEVICE_PROFILES -> DeviceProfilesScreen(activeRoute, output, mode, presets,
-                  manual.takeIf { mode == "Manual" }, bound = boundBands != null,
-                  onBind = { bands ->
-                    bindOutput(bands)
-                    update(settings)
-                  },
-                  onPreset = { bands ->
-                    if (boundBands != null) bindOutput(bands)
-                    update(settings.copy(profile = AudioProfile.AUTO,
-                      manualBands = if (boundBands == null) bands else settings.manualBands))
-                  })
-                Page.SIGNAL_PATH -> SignalPathScreen(status, output, settings) {
-                  update(settings.copy(peakGuard = it))
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Icon(Icons.Rounded.RestartAlt, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Reset all sound settings")
+                  }
                 }
                 Page.SETTINGS -> {
-                  MenuRow("Equalizer", "10- or 31-band manual tuning", Icons.Rounded.Equalizer) { openAudioPage(Page.EQUALIZER) }
-                  MenuRow("Device profiles", "Output details and saved presets", Icons.Rounded.Headphones) { openAudioPage(Page.DEVICE_PROFILES) }
-                  MenuRow("Signal path", "Processing stages and peak limiter", Icons.Rounded.AccountTree) { openAudioPage(Page.SIGNAL_PATH) }
-                  MenuRow("ADB connection", "Pairing, recovery and TCP/5555", Icons.Rounded.SettingsInputAntenna) { page = Page.ADB_CONNECTION }
+                  AudioCard {
+                    Text("SEQ tunes automatically while music plays.", style = MaterialTheme.typography.titleMedium)
+                    Text("No manual Apply or Save steps. Choose a sound style or adjust the equalizer on Home.",
+                      style = MaterialTheme.typography.bodySmall)
+                  }
+                  MenuRow("ADB connection", "Optional connection and recovery", Icons.Rounded.SettingsInputAntenna) {
+                    page = Page.ADB_CONNECTION
+                  }
                   HorizontalDivider()
-                  MenuRow("Diagnostics", "Direct ADB • Audio sessions", Icons.Rounded.MonitorHeart) { page = Page.DIAGNOSTICS }
                   MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",
                     Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
                 }
@@ -328,7 +267,6 @@ class MainActivity : ComponentActivity() {
                   adb = adb,
                   permissionRevision = permissionRevision
                 )
-                Page.DIAGNOSTICS -> SeqAdbDiagnosticsScreen(adb)
                 Page.UPDATES -> {
                   N2K02UpdateScreen(
                     controller = SeqUpdater.controller,

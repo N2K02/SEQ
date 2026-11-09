@@ -12,6 +12,7 @@ import com.n2k02.seq.model.AutoSound
 import com.n2k02.seq.model.EngineSettings
 import com.n2k02.seq.model.RouteKind
 import com.n2k02.seq.model.Tone
+import com.n2k02.seq.model.SoundModeTuning
 
 /** Pure output classification so it can be unit tested. */
 object RoutePolicy {
@@ -55,7 +56,9 @@ object SeqRoute {
     if (s.profile == AudioProfile.PURE) return Tone()
     val volume = if (s.loudness) volumeFraction(context) else 1f
     val adaptive = if (s.adaptive) SeqAdaptiveAnalyzer.correction else Tone()
-    return AutoSound.compose(kind(context, car), volume, adaptive)
+    val output = kind(context, car)
+    val tuned = SoundModeTuning.apply(AutoSound.compose(output, volume, adaptive), s.soundMode)
+    return if (output == RouteKind.SPEAKER) tuned.copy(bass = tuned.bass.coerceAtMost(0f)) else tuned
   }
 
   fun volumeFraction(context: Context): Float = runCatching {
