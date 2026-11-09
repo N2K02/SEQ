@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
       var settings by remember { mutableStateOf(store.read()) }
       var page by rememberSaveable { mutableStateOf(Page.HOME) }
       var resetRevision by remember { mutableIntStateOf(0) }
+      var routeRevision by remember { mutableIntStateOf(0) }
       BackHandler(enabled = page != Page.HOME && page != Page.SETTINGS) {
         page = Page.SETTINGS
       }
@@ -109,7 +110,9 @@ class MainActivity : ComponentActivity() {
       val activeRoute = SeqRoute.kind(this, carMode)
       val output = SeqRoute.describe(this, carMode)
       val activeCorrection = remember(activeRoute, resetRevision) { store.routeCorrection(activeRoute) }
-      val manual = settings.manualBands
+      val manual = remember(activeRoute, routeRevision, resetRevision) {
+        store.routeBands(activeRoute) ?: settings.manualBands
+      }
       val mode = if (manual != null) "Custom" else "Automatic"
       val tone = SeqRoute.tone(this, settings, carMode)
       val autoBands = remember(tone) {
@@ -214,13 +217,18 @@ class MainActivity : ComponentActivity() {
                       initial = manual ?: SystemEqCurveBuilder.resample(autoBands,
                         SystemEqCurveBuilder.COMPACT_BAND_COUNT),
                       selectedMode = settings.soundMode,
+                      custom = manual != null,
                       bassBoost = settings.bassBoost,
                       enabled = settings.enabled,
                       onBands = { bands ->
+                        store.saveRouteBands(activeRoute, bands)
+                        routeRevision++
                         update(settings.copy(profile = AudioProfile.AUTO, allMedia = true,
-                          manualBands = bands))
+                          manualBands = null))
                       },
                       onMode = { sound ->
+                        store.saveRouteBands(activeRoute, null)
+                        routeRevision++
                         update(settings.copy(profile = AudioProfile.AUTO, allMedia = true,
                           soundMode = sound, manualBands = null))
                       },
