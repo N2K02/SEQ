@@ -385,6 +385,7 @@ internal fun AudioCard(content: @Composable ColumnScope.() -> Unit) {
 internal fun SimpleEqualizerScreen(
   initial: List<Float>,
   selectedMode: SoundMode,
+  custom: Boolean,
   bassBoost: Float,
   enabled: Boolean,
   onBands: (List<Float>) -> Unit,
@@ -408,14 +409,15 @@ internal fun SimpleEqualizerScreen(
     Text("Choose a sound style", style = MaterialTheme.typography.bodySmall)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       SoundMode.entries.forEach { mode ->
-        FilterChip(selected = selectedMode == mode && !edited,
+        FilterChip(selected = selectedMode == mode && !custom && !edited,
           onClick = {
             edited = false
             onMode(mode)
           }, label = { Text(mode.title) })
       }
     }
-    Text("Fine tune • 10 bands", style = MaterialTheme.typography.titleMedium)
+    Text(if (custom) "Custom sound • saved for this output" else "Fine tune • 10 bands",
+      style = MaterialTheme.typography.titleMedium)
     val centres = SystemEqCurveBuilder.centres(count)
     Row(Modifier.fillMaxWidth()) {
       gains.forEachIndexed { index, value ->
