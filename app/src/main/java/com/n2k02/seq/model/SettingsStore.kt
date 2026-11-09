@@ -6,15 +6,15 @@ import org.json.JSONObject
 class SettingsStore(context: Context) {
   private val prefs = context.applicationContext.getSharedPreferences("seq_settings", Context.MODE_PRIVATE)
   fun read(): EngineSettings {
-    // Older Reference/Refined choices migrate to the automatic engine.
-    val profile = if (prefs.getString("profile", "") == AudioProfile.PURE.name) AudioProfile.PURE
-      else AudioProfile.AUTO
+    // This simple equalizer has one processing path. Migrate older Pure/per-session
+    // preferences to automatic all-media mode instead of preserving hidden options.
+    val profile = AudioProfile.AUTO
     return EngineSettings(
       enabled = prefs.getBoolean("enabled", false),
       profile = profile,
       adaptive = prefs.getBoolean("adaptive", true),
       peakGuard = prefs.getBoolean("peak_guard", true),
-      allMedia = prefs.getBoolean("all_media", true),
+      allMedia = true,
       loudness = prefs.getBoolean("loudness", true),
       manualBands = SystemEqCurveBuilder.parseManual(prefs.getString("manual_bands", null)),
       bassBoost = readLevel("bass_boost", 0f, 0f..1f),
