@@ -26,7 +26,7 @@ object AutoSound {
   private const val MAX_ADAPT = 3f
 
   fun base(route: RouteKind): Tone = when (route) {
-    RouteKind.SPEAKER -> Tone(bass = -1f, mid = 0.5f, treble = -0.5f)
+    RouteKind.SPEAKER -> Tone(bass = -1f, mid = 0.85f, treble = 0.65f)
     RouteKind.WIRED -> Tone(bass = 2f, treble = -0.75f)
     RouteKind.BLUETOOTH -> Tone(bass = 1f, treble = -0.5f)
     RouteKind.CAR -> Tone(bass = 1.5f, mid = -0.5f, treble = 0.5f)
@@ -38,7 +38,7 @@ object AutoSound {
       base.treble + adaptive.treble * 0.5f)
     if (route == RouteKind.SPEAKER) {
       return Tone(tone.bass.coerceIn(-3f, 0f), tone.mid.coerceIn(-1f, 1f),
-        tone.treble.coerceIn(-2f, 0f))
+        tone.treble.coerceIn(-2f, 1f))
     }
     if (route == RouteKind.CAR) return tone
     val volume = 0.5f + 0.5f * volumeFraction.coerceIn(0f, 1f)
