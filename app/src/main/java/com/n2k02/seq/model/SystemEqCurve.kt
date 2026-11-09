@@ -97,9 +97,10 @@ object SystemEqCurveBuilder {
     val bands = curve.bands.mapIndexed { i, band ->
       band.copy(gainDb = band.gainDb + EqResponse.db(precisionCentres[i], shelf).toFloat())
     }
-    val boostBefore = curve.bands.maxOf { it.gainDb }.coerceAtLeast(0f)
     val boostAfter = bands.maxOf { it.gainDb }.coerceAtLeast(0f)
-    val headroom = curve.inputGainDb - (boostAfter - boostBefore).coerceAtLeast(0f)
+    // Protect the actual combined peak, not the sum of independent peak estimates.
+    // A bass shelf may lift a different region from the previous maximum.
+    val headroom = minOf(curve.inputGainDb, -boostAfter)
     val requested = headroom + if (allowBoost) preampDb else preampDb.coerceAtMost(0f)
     val safe = minOf(requested, -boostAfter - SAFETY_MARGIN_DB)
     return SystemEqCurve(if (boostAfter > 0f || requested > 0f) safe else requested, bands)
@@ -113,11 +114,8 @@ object SystemEqCurveBuilder {
         val offset = correction.filters.sumOf { EqResponse.db(precisionCentres[i], it) }.toFloat()
         band.copy(gainDb = band.gainDb + offset)
       }
-      val correctionBoost = (0..400).maxOf { i ->
-        correction.filters.sumOf { EqResponse.db(LOW_HZ * SPAN.pow(i / 400.0), it) }
-      }.coerceAtLeast(0.0).toFloat()
       val peak = bands.maxOf { it.gainDb }.coerceAtLeast(0f)
-      val safeInput = minOf(base.inputGainDb - correctionBoost,
+      val safeInput = minOf(base.inputGainDb,
         correction.preampDb.toFloat(), -peak)
       SystemEqCurve(safeInput, bands)
     }
