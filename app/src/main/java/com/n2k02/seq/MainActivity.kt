@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity() {
       val manual = settings.manualBands
       val mode = if (manual != null) "Custom" else "Automatic"
       val tone = SeqRoute.tone(this, settings, carMode)
-      val autoBands = remember(tone, adaptiveTone) {
+      val autoBands = remember(tone) {
         SystemEqCurveBuilder.build(tone, null).bands.map { it.gainDb }
       }
       fun update(next: EngineSettings) {
