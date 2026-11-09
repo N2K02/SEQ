@@ -64,6 +64,7 @@ object SeqGlobalEffect {
           SeqRuntime.log("Output mix effect attached (" + it.engine + ")")
         }
 
+      val alreadyAttached = effect != null
       var current = effect ?: attach(allowDynamics = true)
       if (current != null && !current.hasControl) {
         publish(false, "", "Another audio effect app has control", car, SeqRoute.describe(ctx, car))
@@ -72,7 +73,9 @@ object SeqGlobalEffect {
       if (current != null) {
         val active = current
         val ready = runCatching {
-          active.apply(tone, s.peakGuard, s.peakCeilingDb, bands, bassDb, s.preampDb,
+          // A newly attached effect was configured and enabled in open().
+          // Avoid immediately programming it a second time.
+          if (alreadyAttached) active.apply(tone, s.peakGuard, s.peakCeilingDb, bands, bassDb, s.preampDb,
             correction, s.compressorEnabled, s.compressorRatio, s.compressorThresholdDb)
           active.enable()
         }.getOrDefault(false)
@@ -100,7 +103,7 @@ object SeqGlobalEffect {
   @Synchronized fun release(reason: String? = null) {
     effect?.let {
       it.close()
-      SeqRuntime.log("All-media effect released")
+      SeqRuntime.log("All-media effect released reason=${reason ?: "requested"}")
     }
     effect = null
     publish(false, "", reason ?: SeqRuntime.status.value.lastEvent)
