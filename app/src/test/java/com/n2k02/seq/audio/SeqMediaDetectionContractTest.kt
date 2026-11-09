@@ -33,7 +33,8 @@ class SeqMediaDetectionContractTest {
     val activity=source("java/com/n2k02/seq/MainActivity.kt")
     assertTrue(manifest.contains("android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"))
     assertTrue(manifest.contains("SeqMediaSessionListener"))
-    assertTrue(activity.contains("ACTION_NOTIFICATION_LISTENER_SETTINGS"))
+    // Playback detection and output-mix tuning work without forcing notification settings.
+    assertFalse(activity.contains("ACTION_NOTIFICATION_LISTENER_SETTINGS"))
     assertTrue(activity.contains("SeqMediaSessionListener.detectedPlayer.collectAsState()"))
     assertTrue(activity.contains("SeqPlaybackMonitor.mediaActive.collectAsState()"))
   }
@@ -84,7 +85,7 @@ class SeqMediaDetectionContractTest {
     assertTrue(listener.contains("next?.let(::playerIdentity)"))
     assertTrue(listener.contains("getApplicationLabel(it)"))
     assertTrue(listener.contains("getApplicationIcon(it)"))
-    assertTrue(activity.contains("player?.name ?: if (mediaActive)"))
-    assertTrue(activity.contains("Image(bitmap = icon"))
+    assertTrue(activity.contains("externalPlayer?.name ?: if (mediaActive)"))
+    assertTrue(activity.contains("Play music to start tuning"))
   }
 }
