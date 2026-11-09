@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.media.audiofx.Visualizer
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import com.n2k02.seq.model.AutoSound
 import com.n2k02.seq.model.SettingsStore
 import com.n2k02.seq.model.Tone
@@ -46,6 +47,7 @@ object SeqAdaptiveAnalyzer {
   @Volatile var correction: Tone = Tone(); private set
   val state = MutableStateFlow(Tone())
   private const val SAMPLE_MS = 500L
+  private const val RETRY_MS = 30_000L
   private const val DECIDE_EVERY = 8 // ~4 s of averaged spectrum per decision
   private val main = Handler(Looper.getMainLooper())
   private var visualizer: Visualizer? = null
@@ -56,6 +58,8 @@ object SeqAdaptiveAnalyzer {
   private var comparisonGeneration = 0
   private var outputKey: Pair<Boolean, List<Int>>? = null
   private var fft = ByteArray(0)
+  private var retryAfterMs = 0L
+  private var consecutiveErrors = 0
 
   fun permitted(context: Context) =
     context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -75,20 +79,25 @@ object SeqAdaptiveAnalyzer {
       resetCorrection()
       outputKey = key
     }
-    if (visualizer != null) return
+    if (visualizer != null || SystemClock.elapsedRealtime() < retryAfterMs) return
     var candidate: Visualizer? = null
+    var phase = "create"
     visualizer = runCatching {
       val analyzer = Visualizer(0)
       candidate = analyzer
+      phase = "capture-size"
       val sizes = Visualizer.getCaptureSizeRange()
       analyzer.captureSize = sizes.last().coerceAtMost(4096).coerceAtLeast(sizes.first())
+      phase = "scaling"
       analyzer.scalingMode = Visualizer.SCALING_MODE_NORMALIZED
-      check(analyzer.setEnabled(true) == Visualizer.SUCCESS)
+      phase = "enable"
+      check(analyzer.setEnabled(true) == Visualizer.SUCCESS) { "Visualizer rejected enable" }
       fft = ByteArray(analyzer.captureSize)
       analyzer
     }.onFailure {
       runCatching { candidate?.release() }
-      SeqRuntime.log("Adaptive analysis unavailable: " + it.javaClass.simpleName)
+      retryAfterMs = SystemClock.elapsedRealtime() + RETRY_MS
+      SeqRuntime.log("Adaptive unavailable phase=$phase error=${it.javaClass.simpleName} retry=30s")
     }.getOrNull()
     if (visualizer != null) main.postDelayed(tick, SAMPLE_MS)
   }
@@ -101,6 +110,7 @@ object SeqAdaptiveAnalyzer {
     }
     visualizer = null
     fft = ByteArray(0)
+    consecutiveErrors = 0
     outputKey = null
     resetCorrection()
   }
@@ -127,14 +137,24 @@ object SeqAdaptiveAnalyzer {
       main.postDelayed(tick, SAMPLE_MS)
       return
     }
-    runCatching {
+    val result = runCatching {
       if (v.getFft(fft) == Visualizer.SUCCESS) {
+        consecutiveErrors = 0
         SpectrumMath.octaveDb(fft, v.samplingRate / 1000.0, AutoSound.OCTAVES)?.let { db ->
           val acc = sum ?: DoubleArray(db.size).also { sum = it }
           for (i in db.indices) acc[i] += db[i]
           frames++
         }
+      } else {
+        consecutiveErrors++
       }
+    }
+    if (result.isFailure) consecutiveErrors++
+    if (consecutiveErrors >= 3) {
+      SeqRuntime.log("Adaptive capture interrupted error=${result.exceptionOrNull()?.javaClass?.simpleName ?: "capture-status"} retry=30s")
+      retryAfterMs = SystemClock.elapsedRealtime() + RETRY_MS
+      stop()
+      return
     }
     if (frames >= DECIDE_EVERY) decide()
     main.postDelayed(tick, SAMPLE_MS)
