@@ -40,6 +40,15 @@ class SettingsStore(context: Context) {
       .putBoolean("dynamic_bass", s.dynamicBass).putFloat("bass_intensity", s.bassIntensity)
       .putBoolean("all_media",s.allMedia).putBoolean("loudness",s.loudness).apply()
   }
+  /**
+   * Reset sound only. Preserve the on/off switch so music is not interrupted.
+   * ADB identity and pairing are stored separately and are not touched.
+   */
+  fun resetSound() {
+    val enabled = prefs.getBoolean("enabled", false)
+    prefs.edit().clear().putBoolean("enabled", enabled).apply()
+  }
+
   private fun readLevel(key: String, default: Float, range: ClosedFloatingPointRange<Float>) =
     prefs.getFloat(key, default).takeIf { it in range } ?: default
 

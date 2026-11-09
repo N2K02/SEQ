@@ -379,3 +379,87 @@ internal fun AudioCard(content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
   }
 }
+
+/** One-screen equalizer. Every edit is applied and saved after a short idle debounce. */
+@Composable
+internal fun SimpleEqualizerScreen(
+  initial: List<Float>,
+  selectedMode: SoundMode,
+  bassBoost: Float,
+  enabled: Boolean,
+  onBands: (List<Float>) -> Unit,
+  onMode: (SoundMode) -> Unit,
+  onBass: (Float) -> Unit
+) {
+  val count = SystemEqCurveBuilder.COMPACT_BAND_COUNT
+  var gains by remember(initial) {
+    mutableStateOf(SystemEqCurveBuilder.resample(initial, count))
+  }
+  var edited by remember(initial) { mutableStateOf(false) }
+  val latestOnBands by rememberUpdatedState(onBands)
+  LaunchedEffect(gains, edited) {
+    if (edited) {
+      kotlinx.coroutines.delay(120)
+      latestOnBands(gains.toList())
+    }
+  }
+  AudioCard {
+    Text("Equalizer", style = MaterialTheme.typography.titleLarge)
+    Text("Choose a sound style", style = MaterialTheme.typography.bodySmall)
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      SoundMode.entries.forEach { mode ->
+        FilterChip(selected = selectedMode == mode && !edited,
+          onClick = {
+            edited = false
+            onMode(mode)
+          }, label = { Text(mode.title) })
+      }
+    }
+    Text("Fine tune • 10 bands", style = MaterialTheme.typography.titleMedium)
+    val centres = SystemEqCurveBuilder.centres(count)
+    Row(Modifier.fillMaxWidth()) {
+      gains.forEachIndexed { index, value ->
+        val frequency = centres[index]
+        val label = if (frequency < 1000f) frequency.roundToInt().toString()
+          else "${(frequency / 1000f).roundToInt()}k"
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+          Slider(
+            value = value,
+            onValueChange = { level ->
+              gains = gains.toMutableList().also {
+                it[index] = (level * 2f).roundToInt() / 2f
+              }
+              edited = true
+            },
+            valueRange = -SystemEqCurveBuilder.MANUAL_LIMIT_DB..SystemEqCurveBuilder.MANUAL_LIMIT_DB,
+            modifier = Modifier.width(44.dp).height(136.dp)
+              .semantics { contentDescription = "$label Hz equalizer" }
+              .graphicsLayer { rotationZ = -90f }
+              .layout { measurable, constraints ->
+                val placeable = measurable.measure(Constraints.fixed(constraints.maxHeight, constraints.maxWidth))
+                layout(constraints.maxWidth, constraints.maxHeight) {
+                  placeable.place((constraints.maxWidth - placeable.width) / 2,
+                    (constraints.maxHeight - placeable.height) / 2)
+                }
+              }
+          )
+          Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
+      }
+    }
+    Text("Your adjustments apply automatically.", style = MaterialTheme.typography.bodySmall)
+  }
+  AudioCard {
+    Text("Bass", style = MaterialTheme.typography.titleMedium)
+    var bass by remember(bassBoost) { mutableFloatStateOf(bassBoost) }
+    val latestBass by rememberUpdatedState(onBass)
+    LaunchedEffect(bass) {
+      if (bass != bassBoost) {
+        kotlinx.coroutines.delay(120)
+        latestBass(bass)
+      }
+    }
+    Slider(value = bass, onValueChange = { bass = it }, valueRange = 0f..1f,
+      enabled = enabled, modifier = Modifier.semantics { contentDescription = "Bass level" })
+  }
+}
