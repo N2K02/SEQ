@@ -63,13 +63,27 @@ class SeqMediaDetectionContractTest {
 
   @Test fun smoothEqChangesKeepHeadroomAndCancelOnShutdown() {
     val backend = source("java/com/n2k02/seq/audio/SeqSystemEffect.kt")
-    assertTrue(backend.contains("main.postDelayed(this, 20L)"))
+    assertTrue(backend.contains("main.postDelayed(this, 40L)"))
     assertTrue(backend.contains("SystemEqCurveBuilder.transitionGain(programmedCurve, curve)"))
     assertTrue(backend.indexOf("setInputGainAllChannelsTo(interim)") <
       backend.indexOf("dp.setPreEqAllChannelsTo(eq)"))
     assertTrue(backend.contains("closed = true"))
     assertTrue(backend.contains("cancelTransition()"))
     assertTrue(backend.contains("pending?.let(main::removeCallbacks)"))
+  }
+
+  @Test fun adaptiveFailuresHaveBoundedRetriesAndUsefulDiagnostics() {
+    val src = source("java/com/n2k02/seq/audio/SeqAdaptiveAnalyzer.kt")
+    assertTrue(src.contains("RETRY_MS = 30_000L"))
+    assertTrue(src.contains("retryAfterMs = SystemClock.elapsedRealtime() + RETRY_MS"))
+    assertTrue(src.contains("Adaptive unavailable phase="))
+    assertTrue(src.contains("consecutiveErrors >= 3"))
+  }
+
+  @Test fun newEffectDoesNotGetReprogrammedOnFirstSync() {
+    val src = source("java/com/n2k02/seq/audio/SeqGlobalEffect.kt")
+    assertTrue(src.contains("if (alreadyAttached) active.apply("))
+    assertTrue(src.contains("released reason="))
   }
 
   @Test fun comparisonRequiresAControlledEffectAndExcludesAdaptiveSamples() {
