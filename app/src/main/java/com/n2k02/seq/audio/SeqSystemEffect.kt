@@ -203,7 +203,7 @@ class SeqSystemEffect private constructor(
         override fun run() {
           if (closed || !hasControl) { pending = null; return }
           step++
-          val fraction = step / 10f
+          val fraction = step / 5f
           val current = before.zip(target) { a, b ->
             (a.toFloat() + (b - a) * fraction).toInt().toShort()
           }
@@ -213,7 +213,7 @@ class SeqSystemEffect private constructor(
             response = current.map { it / 100f }
           }.isSuccess
           if (!success) { invalidateTuning(); return }
-          if (step < 10) { pending = this; main.postDelayed(this, 20L) }
+          if (step < 5) { pending = this; main.postDelayed(this, 40L) }
           else { pending = null; lastOemLevels = target }
         }
       }
