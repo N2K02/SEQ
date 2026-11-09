@@ -50,7 +50,7 @@ dependencies {
   implementation("androidx.activity:activity-compose:1.12.4")
   implementation("androidx.compose.material3:material3:1.5.0-beta02")
   implementation("dev.n2k02:theme:0.1.4")
-  implementation("dev.n2k02:updater:0.1.19")
+  implementation("dev.n2k02:updater:0.1.30")
   implementation("dev.n2k02:adb-core:0.1.7")
   implementation("androidx.compose.material:material-icons-extended")
   implementation("androidx.compose.foundation:foundation")
