@@ -110,6 +110,22 @@ class SystemEqCurveTest {
     assertTrue(boosted.bands.all { it.gainDb + boosted.inputGainDb <= 0f })
   }
 
+  @Test fun correctionDoesNotSubtractItsPeakTwice() {
+    val profile = HeadphoneProfile("test", -1.0,
+      listOf(EqFilter(FilterKind.PEAK, 1000.0, 2.0, 1.0)))
+    val curve = SystemEqCurveBuilder.configured(Tone(), null, 0f, 0f, false, profile)
+    val maximum = curve.bands.maxOf { it.gainDb }
+    assertTrue(curve.inputGainDb >= -3f)
+    assertTrue(curve.inputGainDb + maximum <= 0.05f)
+  }
+
+  @Test fun bassAtNonpeakFrequencyDoesNotAddFullIndependentHeadroom() {
+    val base = SystemEqCurveBuilder.manual(List(10) { if (it == 9) 4f else 0f })
+    val adjusted = SystemEqCurveBuilder.withOutputControls(base, 2f, 0f, false)
+    assertEquals(base.inputGainDb, adjusted.inputGainDb, 0.1f)
+    assertTrue(adjusted.bands.all { it.gainDb + adjusted.inputGainDb <= 0.01f })
+  }
+
   @Test fun soundModesAreDistinctAndNaturalIsNeutral() {
     val tone = Tone(bass = 1f, mid = 0.5f, treble = -0.25f)
     assertEquals(tone, SoundModeTuning.apply(tone, SoundMode.NATURAL))
