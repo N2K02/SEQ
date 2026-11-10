@@ -15,7 +15,7 @@ class SimpleSoundExperienceContractTest {
     val homeBody = home.substringAfter("Page.HOME -> {").substringBefore("Page.SETTINGS -> {")
     assertTrue(homeBody.contains("SimpleEqualizerScreen("))
     assertTrue(homeBody.contains("Reset all sound settings"))
-    assertTrue(homeBody.contains("store.resetSound()"))
+    assertTrue(homeBody.contains("store.resetSound(activeRoute)"))
     assertFalse(homeBody.contains("Open equalizer"))
     assertFalse(homeBody.contains("Save preset"))
     assertFalse(homeBody.contains("Signal path"))
@@ -33,13 +33,16 @@ class SimpleSoundExperienceContractTest {
     assertFalse(simple.contains("Apply manual tuning"))
   }
 
-  @Test fun resettingSoundPreservesEnabledButClearsRouteOverrides() {
+  @Test fun resettingSoundPreservesEnabledAndRestoresFlatTenBands() {
     val store = source("app/src/main/java/com/n2k02/seq/model/SettingsStore.kt")
-    val reset = store.substringAfter("fun resetSound() {").substringBefore("private fun readLevel")
+    val reset = store.substringAfter("fun resetSound(activeRoute: RouteKind? = null) {").substringBefore("private fun readLevel")
     assertTrue(reset.contains("getBoolean(\"enabled\", false)"))
-    assertTrue(reset.contains("prefs.edit().clear().putBoolean(\"enabled\", enabled).apply()"))
+    assertTrue(reset.contains("prefs.edit().clear().putBoolean(\"enabled\", enabled)"))
+    assertTrue(reset.contains("List(SystemEqCurveBuilder.BAND_COUNT) { 0f }"))
+    assertTrue(reset.contains("editor.apply()"))
     val main = source("app/src/main/java/com/n2k02/seq/MainActivity.kt")
     assertTrue(main.contains("update(store.read().copy(enabled = settings.enabled"))
+    assertTrue(main.contains("key(activeRoute, resetRevision)"))
   }
 
   @Test fun complexAdvancedScreensAreNotUserFacing() {
