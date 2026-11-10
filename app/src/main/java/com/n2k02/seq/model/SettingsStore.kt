@@ -44,9 +44,16 @@ class SettingsStore(context: Context) {
    * Reset sound only. Preserve the on/off switch so music is not interrupted.
    * ADB identity and pairing are stored separately and are not touched.
    */
-  fun resetSound() {
+  fun resetSound(activeRoute: RouteKind? = null) {
     val enabled = prefs.getBoolean("enabled", false)
-    prefs.edit().clear().putBoolean("enabled", enabled).apply()
+    val editor = prefs.edit().clear().putBoolean("enabled", enabled)
+    // Write flat 10-band gains in the same transaction as the reset.
+    // Otherwise automatic tone reconstruction redraws nonzero sliders.
+    if (activeRoute != null) {
+      editor.putString("route_eq_${activeRoute.name}",
+        List(SystemEqCurveBuilder.BAND_COUNT) { 0f }.joinToString(","))
+    }
+    editor.apply()
   }
 
   private fun readLevel(key: String, default: Float, range: ClosedFloatingPointRange<Float>) =
