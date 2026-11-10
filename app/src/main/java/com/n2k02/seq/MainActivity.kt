@@ -277,7 +277,8 @@ class MainActivity : ComponentActivity() {
                   }
                   OutlinedButton(
                     onClick = {
-                      store.resetSound()
+                      store.resetSound(activeRoute)
+                      // Recreate slider state after clearing in-flight edits and saved levels.
                       resetRevision++
                       update(store.read().copy(enabled = settings.enabled,
                         profile = AudioProfile.AUTO, allMedia = true))
