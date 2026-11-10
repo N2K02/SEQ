@@ -260,6 +260,20 @@ class MainActivity : ComponentActivity() {
                       custom = manual != null,
                       bassBoost = settings.bassBoost,
                       enabled = settings.enabled,
+                      spatialMode = settings.spatialMode,
+                      spatialIntensity = settings.spatialIntensity,
+                      onPreset = { name ->
+                        MRadioPresets.bands(name)?.let { bands ->
+                          store.saveRouteBands(activeRoute, bands)
+                          routeRevision++
+                          update(settings.copy(profile = AudioProfile.AUTO, allMedia = true,
+                            soundMode = SoundMode.NATURAL, manualBands = null))
+                        }
+                      },
+                      onSpatial = { spatial, intensity ->
+                        update(settings.copy(spatialMode = spatial,
+                          spatialIntensity = intensity.coerceIn(0f, 1f)))
+                      },
                       onBands = { bands ->
                         store.saveRouteBands(activeRoute, bands)
                         routeRevision++
