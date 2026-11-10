@@ -81,6 +81,7 @@ class SeqPcmCaptureProbeService : Service() {
       startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
       val manager = getSystemService(MediaProjectionManager::class.java)
       val ownedProjection = manager.getMediaProjection(Activity.RESULT_OK, result)
+        ?: error("MediaProjection unavailable")
       projection = ownedProjection
       callback = object : MediaProjection.Callback() {
         override fun onStop() {
