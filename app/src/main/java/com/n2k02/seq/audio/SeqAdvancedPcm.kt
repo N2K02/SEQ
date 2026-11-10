@@ -26,14 +26,16 @@ data class SeqAdvancedPcmConfig(
   val bassCutoffHz: Float = 120f,
   val convolutionWet: Float = 0f
 ) {
+  private fun bounded(value: Float, min: Float, max: Float, fallback: Float) =
+    if (value.isFinite()) value.coerceIn(min, max) else fallback
   fun safe() = copy(
-    stereoWidth = stereoWidth.coerceIn(0f, 1.8f),
-    tubeDrive = tubeDrive.coerceIn(0f, 1f),
-    compressorThresholdDb = compressorThresholdDb.coerceIn(-36f, -3f),
-    compressorRatio = compressorRatio.coerceIn(1f, 8f),
-    bassGainDb = bassGainDb.coerceIn(0f, 6f),
-    bassCutoffHz = bassCutoffHz.coerceIn(40f, 200f),
-    convolutionWet = convolutionWet.coerceIn(0f, .7f)
+    stereoWidth = bounded(stereoWidth, 0f, 1.8f, 1f),
+    tubeDrive = bounded(tubeDrive, 0f, 1f, 0f),
+    compressorThresholdDb = bounded(compressorThresholdDb, -36f, -3f, -18f),
+    compressorRatio = bounded(compressorRatio, 1f, 8f, 1f),
+    bassGainDb = bounded(bassGainDb, 0f, 6f, 0f),
+    bassCutoffHz = bounded(bassCutoffHz, 40f, 200f, 120f),
+    convolutionWet = bounded(convolutionWet, 0f, .7f, 0f)
   )
 }
 
@@ -105,6 +107,9 @@ class SeqAdvancedPcm(
     val settings = options
     val bassA = (1.0 - exp(-2.0 * PI * settings.bassCutoffHz / rate)).toFloat()
     val gain = (10.0.pow(settings.bassGainDb / 20.0) - 1.0).toFloat()
+    val drive = 1f + 3f * settings.tubeDrive
+    val driveNorm = if (settings.tubeDrive > 0f) tanh(drive) else 1f
+    val threshold = 10.0.pow(settings.compressorThresholdDb / 20.0).toFloat()
     for (i in 0 until frames) {
       val p = offset + i * 2
       var l = stereo[p].coerceIn(-1f, 1f)
@@ -118,16 +123,13 @@ class SeqAdvancedPcm(
       l = mid + side
       r = mid - side
       if (settings.tubeDrive > 0f) {
-        val drive = 1f + 3f * settings.tubeDrive
-        val norm = tanh(drive)
-        l = tanh(l * drive) / norm
-        r = tanh(r * drive) / norm
+        l = tanh(l * drive) / driveNorm
+        r = tanh(r * drive) / driveNorm
       }
       val level = max(abs(l), abs(r))
       envelope = if (level > envelope)
         attack * envelope + (1f - attack) * level
       else release * envelope + (1f - release) * level
-      val threshold = 10.0.pow(settings.compressorThresholdDb / 20.0).toFloat()
       if (settings.compressorRatio > 1f && envelope > threshold) {
         val attenuation = (threshold / envelope).pow(1f - 1f / settings.compressorRatio)
         l *= attenuation
