@@ -186,7 +186,7 @@ object HuaweiNativeEq {
     if (!permitted(context)) return false
     val name = route.substringBefore(" • ")
     val device = adapter.bondedDevices.firstOrNull {
-      (it.alias ?: it.name)?.equals(name, ignoreCase = true) == true
+      (if (Build.VERSION.SDK_INT >= 30) it.alias ?: it.name else it.name)?.equals(name, ignoreCase = true) == true
     } ?: return false
     val socket = device.createRfcommSocketToServiceRecord(UUID.fromString(SERVICE_UUID))
     socketInUse = socket
