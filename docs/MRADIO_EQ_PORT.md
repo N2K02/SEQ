@@ -28,3 +28,23 @@ mRadio's SoundProcessor runs **inside its own Media3 audio sink**. Its stereo cr
 4. Test Wide and Headphone 3D on a wired headset where AudioEffect Virtualizer is implemented; check logs for attachment only and confirm audible difference by ear.
 5. Test Bluetooth LDAC and Android Auto; the hardware playback path may bypass output-mix effects. Confirm SEQ never promises spatial effects are audible just from attachment.
 6. Confirm HFreebuds verified native EQ bypass releases SEQ's Virtualizer and other audio effects.
+
+
+## Privileged audio investigation and experimental PCM prototypes (November 2026)
+
+SEQ now offers these diagnostic-only capabilities under Settings → ADB connection:
+- Verified-ADB `dumpsys media.audio_flinger` effect-chain discovery (bounded 60-line output).
+- Verified-ADB `dumpsys media.audio_policy` output/route/offload discovery.
+- Public `AudioEffect.queryEffects()` inventory for OEM reverb, spatial and virtualizer implementations.
+- Transient `PresetReverb` probe on session 0, always released immediately.
+
+IMPORTANT: `PresetReverb` and `EnvironmentalReverb` are auxiliary effects. A third-party player must opt in and set its auxiliary-send level; an ADB shell grant does not configure that player. A positive capability probe **does not mean** Concert Hall is audible across apps.
+
+The pure-Kotlin `SeqHallPcm` and `SeqOrbitPcm` processors are isolated, testable implementations for audio that SEQ already owns. Neither captures nor plays audio. They are deliberately not wired into the global Android effect, because PCM replay without an exclusive source/mute path produces duplicated audio. Future integration requires a proven exclusive PCM path and device-level tests with wired, Bluetooth and Android Auto routes. Shizuku/ADB shell cannot by itself register a new native audio-effect library or intercept every output stream; system-level installation generally requires OEM/root access.
+
+Safety conditions before enabling experimental PCM on any route:
+1. Reliable producer ownership of the source PCM; no capture-policy violation.
+2. Original playback is absent or legally routed exclusively to the processor.
+3. Sample rate/channel format are validated, and no duplicate sound, feedback or echo.
+4. Route loss/shutdown cancels DSP immediately; all effects release correctly.
+5. Clipping, silence, CPU, latency and reconnect tests pass on a real device.
