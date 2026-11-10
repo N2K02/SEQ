@@ -13,7 +13,7 @@ import java.io.Closeable
 
 /**
  * Platform audio effect used for audio SEQ does not decode itself.
- * Prefers DynamicsProcessing (31 bands at exact SEQ response + input headroom + limiter);
+ * Prefers DynamicsProcessing (10 bands + input headroom + limiter);
  * falls back to the OEM Equalizer only when DynamicsProcessing is unavailable.
  */
 class SeqSystemEffect private constructor(
@@ -33,7 +33,7 @@ class SeqSystemEffect private constructor(
       compressorEnabled: Boolean = false, compressorRatio: Float = 1.5f,
       compressorThresholdDb: Float = -18f, allowDynamics: Boolean = true, onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
       val preferred = if (allowDynamics) {
-        listOf(31, 10, 5).firstNotNullOfOrNull { count ->
+        listOf(10, 5).firstNotNullOfOrNull { count ->
           configure(runCatching { dynamics(priority, session, count) }.getOrNull(),
             tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb,
             correction, compressorEnabled, compressorRatio, compressorThresholdDb)
