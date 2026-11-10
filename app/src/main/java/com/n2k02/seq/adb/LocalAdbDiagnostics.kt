@@ -1,6 +1,8 @@
 package com.n2k02.seq.adb
 
 import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
 import com.n2k02.seq.audio.SeqRuntime
 import dev.n2k02.adb.core.AdbCore
 import dev.n2k02.adb.core.AdbOption
@@ -37,6 +39,9 @@ object AdbAccessPolicy {
     fun port(input: String): Int? = input.toIntOrNull()?.takeIf { it in 1..65535 }
     fun pairingCode(code: String): Boolean = code.matches(Regex("[0-9]{6}"))
     fun verifiedUid(output: String): Boolean = output.trim() == "2000"
+    // Bounded, read-only observations. ADB dumpsys does not expose assignable AudioEffect sessions.
+    const val PLAYER_PROBE =
+        "dumpsys media.audio_flinger | grep -E -i '(track|session|offload|a2dp|bluetooth)' | head -n 35"
     const val AUDIO_DIAGNOSTIC =
         "dumpsys audio | grep -E -i 'audio route|output device|speaker|bluetooth|a2dp' | head -n 25"
     // Read-only capability hint; never activates or registers routing.
@@ -82,6 +87,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         )
     }
 
+    val playerProbe = MutableStateFlow("Player diagnostics not checked")
     val routingProbe = MutableStateFlow("Not checked · exclusive routing unverified")
     val state = MutableStateFlow(AdbDiagnosticState(
         message = if (preferences.previouslyAuthorized) "Previously authorized • idle" else "ADB setup required",
@@ -146,6 +152,36 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
             } catch (failure: Exception) {
                 SeqRuntime.log("SEQ audio diagnostics unavailable: " + failure.javaClass.simpleName)
             }
+        }
+    }
+
+    /** Poweramp-style diagnostic permission improves observations, not PCM access.
+     * Never assume shell-visible session IDs can be used to attach to another app.
+     */
+    fun inspectPlayers() {
+        if (shutDown) return
+        scope.launch {
+            playerProbe.value = "Inspecting player routing…"
+            val result = try {
+                if (!sharedCore.state.value.connected) {
+                    "ADB disconnected · Android media callbacks remain active"
+                } else {
+                    val output = sharedCore.execVerified(AdbAccessPolicy.PLAYER_PROBE, 8_000)
+                    val sample = output.lineSequence().map(String::trim)
+                        .filter(String::isNotEmpty).take(35).toList()
+                    val offload = sample.any { it.contains("offload", true) }
+                    val bluetooth = sample.any { it.contains("bluetooth", true) || it.contains("a2dp", true) }
+                    val tracks = sample.count { it.contains("track", true) || it.contains("session", true) }
+                    SeqRuntime.log("ADB player probe tracks=$tracks offloadHint=$offload bluetoothHint=$bluetooth; PCM path unknown")
+                    "ADB audio snapshot · tracks=$tracks · offload hint=$offload · Bluetooth hint=$bluetooth · effect path unverified"
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("ADB player probe unavailable: " + failure.javaClass.simpleName)
+                "ADB player probe unavailable"
+            }
+            playerProbe.value = result
         }
     }
 
