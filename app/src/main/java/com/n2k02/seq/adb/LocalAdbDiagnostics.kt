@@ -1,8 +1,6 @@
 package com.n2k02.seq.adb
 
 import android.content.Context
-import android.Manifest
-import android.content.pm.PackageManager
 import com.n2k02.seq.audio.SeqRuntime
 import dev.n2k02.adb.core.AdbCore
 import dev.n2k02.adb.core.AdbOption
@@ -88,6 +86,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
     }
 
     val playerProbe = MutableStateFlow("Player diagnostics not checked")
+    val dumpGrant = MutableStateFlow("DUMP permission not checked")
     val routingProbe = MutableStateFlow("Not checked · exclusive routing unverified")
     val state = MutableStateFlow(AdbDiagnosticState(
         message = if (preferences.previouslyAuthorized) "Previously authorized • idle" else "ADB setup required",
@@ -152,6 +151,35 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
             } catch (failure: Exception) {
                 SeqRuntime.log("SEQ audio diagnostics unavailable: " + failure.javaClass.simpleName)
             }
+        }
+    }
+
+    /** Explicit ADB permission request. DUMP is development/signature-restricted on
+     * many builds; a successful command is not proof of usable audio-effect control.
+     */
+    fun grantDumpPermission() {
+        if (shutDown) return
+        scope.launch {
+            dumpGrant.value = "Requesting diagnostic permission…"
+            val result = try {
+                if (!sharedCore.state.value.connected) {
+                    "ADB not connected"
+                } else {
+                    val output = sharedCore.execVerified(
+                        "pm grant com.n2k02.seq android.permission.DUMP", 8_000)
+                    if (output.contains("Exception", true) || output.contains("denied", true)) {
+                        "DUMP permission unavailable on this Android build"
+                    } else {
+                        "ADB grant requested · verify in Android permissions"
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("DUMP permission grant unavailable: " + failure.javaClass.simpleName)
+                "DUMP permission unavailable: " + failure.javaClass.simpleName
+            }
+            dumpGrant.value = result
         }
     }
 
