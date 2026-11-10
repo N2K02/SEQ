@@ -226,6 +226,9 @@ internal fun AudioCard(content: @Composable ColumnScope.() -> Unit) {
 }
 
 /** One-screen equalizer. Every edit is applied and saved after a short idle debounce. */
+/** One-screen SEQ equalizer with mRadio's preset and 3D controls.
+ * Ten bands remain the single editable and stored EQ format.
+ */
 @Composable
 internal fun SimpleEqualizerScreen(
   initial: List<Float>,
@@ -233,11 +236,15 @@ internal fun SimpleEqualizerScreen(
   custom: Boolean,
   bassBoost: Float,
   enabled: Boolean,
+  spatialMode: SpatialMode,
+  spatialIntensity: Float,
   onBands: (List<Float>) -> Unit,
   onMode: (SoundMode) -> Unit,
-  onBass: (Float) -> Unit
+  onBass: (Float) -> Unit,
+  onPreset: (String) -> Unit,
+  onSpatial: (SpatialMode, Float) -> Unit
 ) {
-  val count = SystemEqCurveBuilder.COMPACT_BAND_COUNT
+  val count = SystemEqCurveBuilder.BAND_COUNT
   var gains by remember(initial) {
     mutableStateOf(SystemEqCurveBuilder.resample(initial, count))
   }
@@ -250,54 +257,74 @@ internal fun SimpleEqualizerScreen(
     }
   }
   AudioCard {
+    Text("3D sound", style = MaterialTheme.typography.titleMedium)
+    Row(Modifier.horizontalScroll(rememberScrollState()),
+      horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      SpatialMode.entries.forEach { mode ->
+        FilterChip(selected = spatialMode == mode,
+          enabled = enabled && mode.platformSupported,
+          onClick = { onSpatial(mode, spatialIntensity) },
+          label = { Text(mode.label) })
+      }
+    }
+    Text(spatialMode.blurb, style = MaterialTheme.typography.bodySmall)
+    if (spatialMode != SpatialMode.OFF && spatialMode.platformSupported) {
+      Slider(value = spatialIntensity.coerceIn(0f, 1f),
+        onValueChange = { onSpatial(spatialMode, it) },
+        valueRange = 0f..1f, enabled = enabled,
+        modifier = Modifier.semantics { contentDescription = "3D sound strength" })
+      Text("Strength • ${(spatialIntensity * 100).roundToInt()}% • Android virtualization support varies by output",
+        style = MaterialTheme.typography.bodySmall)
+    }
+    Text("Concert hall and 8D orbit require direct PCM processing and are unavailable for other apps.",
+      style = MaterialTheme.typography.bodySmall)
+  }
+  AudioCard {
+    Text("Presets", style = MaterialTheme.typography.titleMedium)
+    val selectedPreset = if (edited) null else MRadioPresets.matching(if (custom) initial else null)
+    Row(Modifier.horizontalScroll(rememberScrollState()),
+      horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      MRadioPresets.names.forEach { name ->
+        FilterChip(selected = selectedPreset == name,
+          enabled = enabled, onClick = { onPreset(name) }, label = { Text(name) })
+      }
+    }
+    Text("mRadio's presets adapted to SEQ's 10-band range.", style = MaterialTheme.typography.bodySmall)
+  }
+  AudioCard {
     Text("Equalizer", style = MaterialTheme.typography.titleLarge)
     Text("Choose a sound style", style = MaterialTheme.typography.bodySmall)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       SoundMode.entries.forEach { mode ->
         FilterChip(selected = selectedMode == mode && !custom && !edited,
-          onClick = {
-            edited = false
-            onMode(mode)
-          }, label = { Text(mode.title) })
+          enabled = enabled, onClick = { edited = false; onMode(mode) },
+          label = { Text(mode.title) })
       }
     }
-    Text(if (custom && gains.all { it == 0f }) "Flat • default sound" else if (custom) "Custom sound • saved for this output" else "Fine tune • 10 bands",
+    Text(if (custom && gains.all { it == 0f }) "Flat • default sound"
+      else if (custom) "Custom sound • saved for this output" else "Fine tune • 10 bands",
       style = MaterialTheme.typography.titleMedium)
     val centres = SystemEqCurveBuilder.centres(count)
-    Row(Modifier.fillMaxWidth()) {
-      gains.forEachIndexed { index, value ->
-        val frequency = centres[index]
-        val label = if (frequency < 1000f) frequency.roundToInt().toString()
-          else "${(frequency / 1000f).roundToInt()}k"
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-          Slider(
-            value = value,
-            onValueChange = { level ->
-              gains = gains.toMutableList().also {
-                it[index] = (level * 2f).roundToInt() / 2f
-              }
-              edited = true
-            },
-            valueRange = -SystemEqCurveBuilder.MANUAL_LIMIT_DB..SystemEqCurveBuilder.MANUAL_LIMIT_DB,
-            modifier = Modifier.width(44.dp).height(136.dp)
-              .semantics { contentDescription = "$label Hz equalizer" }
-              .graphicsLayer { rotationZ = -90f }
-              .layout { measurable, constraints ->
-                val placeable = measurable.measure(Constraints.fixed(constraints.maxHeight, constraints.maxWidth))
-                layout(constraints.maxWidth, constraints.maxHeight) {
-                  placeable.place((constraints.maxWidth - placeable.width) / 2,
-                    (constraints.maxHeight - placeable.height) / 2)
-                }
-              }
-          )
-          Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
+    gains.forEachIndexed { index, value ->
+      val frequency = centres[index]
+      val label = if (frequency < 1000.0) "${frequency.roundToInt()} Hz"
+        else "${(frequency / 1000.0).toFloat().let { String.format(Locale.ROOT, "%.1f", it) }} kHz"
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.width(78.dp), style = MaterialTheme.typography.bodySmall)
+        Slider(value = value, onValueChange = { level ->
+          gains = gains.toMutableList().also { it[index] = (level * 2f).roundToInt() / 2f }
+          edited = true
+        }, enabled = enabled,
+          valueRange = -SystemEqCurveBuilder.MANUAL_LIMIT_DB..SystemEqCurveBuilder.MANUAL_LIMIT_DB,
+          modifier = Modifier.weight(1f).semantics { contentDescription = "$label equalizer" })
+        Text(String.format(Locale.ROOT, "%+.1f dB", value), modifier = Modifier.width(65.dp),
+          style = MaterialTheme.typography.bodySmall)
       }
     }
-    Text("Your adjustments apply automatically.", style = MaterialTheme.typography.bodySmall)
+    Text("Every adjustment applies automatically and is saved.", style = MaterialTheme.typography.bodySmall)
   }
   AudioCard {
-    Text("Bass", style = MaterialTheme.typography.titleMedium)
+    Text("Bass boost", style = MaterialTheme.typography.titleMedium)
     var bass by remember(bassBoost) { mutableFloatStateOf(bassBoost) }
     val latestBass by rememberUpdatedState(onBass)
     LaunchedEffect(bass) {
@@ -306,7 +333,11 @@ internal fun SimpleEqualizerScreen(
         latestBass(bass)
       }
     }
-    Slider(value = bass, onValueChange = { bass = it }, valueRange = 0f..1f,
-      enabled = enabled, modifier = Modifier.semantics { contentDescription = "Bass level" })
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Slider(value = bass, onValueChange = { bass = it }, valueRange = 0f..1f,
+        enabled = enabled, modifier = Modifier.weight(1f).semantics { contentDescription = "Bass level" })
+      Text("${(bass * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.width(50.dp))
+    }
   }
 }
