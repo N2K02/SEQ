@@ -28,7 +28,7 @@ class MRadioSoundTest {
     assertFalse(SpatialMode.HALL.platformSupported)
     assertFalse(SpatialMode.ORBIT_8D.platformSupported)
     assertEquals(SpatialMode.OFF, EngineSettings().spatialMode)
-    assertEquals(0.6f, EngineSettings().spatialIntensity)
+    assertEquals(0.6f, EngineSettings().spatialIntensity, 0f)
   }
 
   private fun source(path: String): String = generateSequence(File(System.getProperty("user.dir")).canonicalFile) { it.parentFile }
