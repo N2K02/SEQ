@@ -16,6 +16,7 @@ object SeqGlobalEffect {
   private const val PRIORITY = Int.MAX_VALUE
   private var effect: SeqSystemEffect? = null
   private var app: Context? = null
+  private var lastRouteKey: Pair<Boolean, List<Int>>? = null
 
   @Volatile var comparisonGeneration = 0
     private set
@@ -52,6 +53,11 @@ object SeqGlobalEffect {
         return
       }
       val route = SeqRoute.kind(ctx, car)
+      val routeKey = SeqRoute.outputKey(ctx, car)
+      if (routeKey != lastRouteKey) {
+        lastRouteKey = routeKey
+        SeqRuntime.log("Effect route=${SeqRoute.describe(ctx, car)} engine=${effect?.engine ?: "not attached"} mix=0; Bluetooth offload path unverified")
+      }
       val bands = store.routeBands(route) ?: s.manualBands
       val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(ctx))
       val correction = store.routeCorrection(route)
@@ -106,6 +112,7 @@ object SeqGlobalEffect {
       SeqRuntime.log("All-media effect released reason=${reason ?: "requested"}")
     }
     effect = null
+    lastRouteKey = null
     publish(false, "", reason ?: SeqRuntime.status.value.lastEvent)
   }
 
