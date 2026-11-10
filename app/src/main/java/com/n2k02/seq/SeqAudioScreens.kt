@@ -269,11 +269,19 @@ internal fun SimpleEqualizerScreen(
     }
     Text(spatialMode.blurb, style = MaterialTheme.typography.bodySmall)
     if (spatialMode != SpatialMode.OFF && spatialMode.platformSupported) {
-      Slider(value = spatialIntensity.coerceIn(0f, 1f),
-        onValueChange = { onSpatial(spatialMode, it) },
+      var draftStrength by remember(spatialIntensity) { mutableFloatStateOf(spatialIntensity) }
+      val latestOnSpatial by rememberUpdatedState(onSpatial)
+      LaunchedEffect(draftStrength, spatialMode) {
+        if (draftStrength != spatialIntensity) {
+          kotlinx.coroutines.delay(120)
+          latestOnSpatial(spatialMode, draftStrength)
+        }
+      }
+      Slider(value = draftStrength.coerceIn(0f, 1f),
+        onValueChange = { draftStrength = it },
         valueRange = 0f..1f, enabled = enabled,
         modifier = Modifier.semantics { contentDescription = "3D sound strength" })
-      Text("Strength • ${(spatialIntensity * 100).roundToInt()}% • Android virtualization support varies by output",
+      Text("Strength • ${(draftStrength * 100).roundToInt()}% • Android virtualization support varies by output",
         style = MaterialTheme.typography.bodySmall)
     }
     Text("Concert hall and 8D orbit require direct PCM processing and are unavailable for other apps.",
