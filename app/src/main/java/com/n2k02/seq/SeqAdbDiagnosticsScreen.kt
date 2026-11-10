@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,4 +45,15 @@ internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, 
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         },
     )
+    val probe by adb.playerProbe.collectAsState()
+    val grant by adb.dumpGrant.collectAsState()
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+        Text("Advanced player tracking", style = MaterialTheme.typography.titleSmall)
+        Text("Read-only ADB diagnostics. Bluetooth hardware offload can still bypass SEQ.",
+            style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = adb::inspectPlayers) { Text("Inspect audio players") }
+        Text(probe, style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = adb::grantDumpPermission) { Text("Request DUMP via ADB") }
+        Text(grant, style = MaterialTheme.typography.bodySmall)
+    }
 }
