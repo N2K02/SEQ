@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SystemEqCurveTest {
+  @Test fun fallbackBandCountsPreserveSafetyAndCoverage() {
+    val original = SystemEqCurveBuilder.build(Tone(bass = 5f, treble = 3f), null)
+    for (count in listOf(31, 10, 5)) {
+      val reduced = SystemEqCurveBuilder.forBandCount(original, count)
+      assertEquals(count, reduced.bands.size)
+      assertEquals(20000f, reduced.bands.last().cutoffHz, 1f)
+      assertTrue(reduced.inputGainDb <= original.inputGainDb)
+      assertTrue(reduced.bands.all { it.gainDb + reduced.inputGainDb <= 0.05f })
+    }
+  }
+
   @Test fun neutralToneIsFlat() {
     val c = SystemEqCurveBuilder.build(Tone(), null)
     assertEquals(SystemEqCurveBuilder.BAND_COUNT, c.bands.size)
