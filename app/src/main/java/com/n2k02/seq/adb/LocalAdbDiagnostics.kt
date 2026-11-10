@@ -53,6 +53,9 @@ object AdbAccessPolicy {
         "dumpsys media.audio_flinger | grep -E -i '(effect chain|effect id|effect descriptor|effect name|reverb|spatial|virtualizer|offload|output thread|mixer thread)' | head -n 60"
     const val POLICY_PROBE =
         "dumpsys media.audio_policy | grep -E -i '(mix port|route|output|a2dp|offload|spatial|direct)' | head -n 60"
+    /** Permission audit only: never invokes registerAudioPolicy or changes routing. */
+    const val EXCLUSIVE_POLICY_AUDIT =
+        "id -u; dumpsys package com.n2k02.seq | grep -E -i '(MODIFY_AUDIO_ROUTING|CAPTURE_AUDIO_OUTPUT|CAPTURE_MEDIA_OUTPUT|MEDIA_CONTENT_CONTROL|DUMP|granted)' | head -n 55; dumpsys media.audio_policy | grep -E -i '(remote.?submix|r_submix|policy mix|registered mix|mix route)' | head -n 35"
 }
 
 /** SEQ-specific audio diagnostics only; ADB connection, discovery, pairing,
@@ -100,6 +103,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
     val dumpGrant = MutableStateFlow("DUMP permission not checked")
     val routingProbe = MutableStateFlow("Not checked · exclusive routing unverified")
     val effectProbe = MutableStateFlow("Not checked · vendor effects unknown")
+    val exclusiveAudit = MutableStateFlow("Not checked · exclusive PCM routing unverified")
     val state = MutableStateFlow(AdbDiagnosticState(
         message = if (preferences.previouslyAuthorized) "Previously authorized • idle" else "ADB setup required",
         verifiedAt = preferences.lastVerifiedAt,
@@ -301,6 +305,45 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
                 "Effect discovery unavailable: " + failure.javaClass.simpleName
             }
             effectProbe.value = result
+        }
+    }
+
+    /** Read-only verification of what ADB shell can see. Even a granted package
+     * permission does not establish that AudioPolicy can register an exclusive
+     * mix on this OEM firmware. Never attempt a transaction based on this dump.
+     */
+    fun auditExclusivePcm() {
+        if (shutDown) return
+        exclusiveAudit.value = "Auditing exclusive PCM permissions…"
+        scope.launch {
+            val result = try {
+                if (!sharedCore.state.value.connected) {
+                    "ADB disconnected · normal audio unchanged"
+                } else {
+                    val output = sharedCore.execVerified(AdbAccessPolicy.EXCLUSIVE_POLICY_AUDIT, 8_000)
+                    val lines = output.lineSequence().map(String::trim)
+                        .filter(String::isNotEmpty).take(91).toList()
+                    val uid = lines.firstOrNull()
+                    val privilegedPermission = lines.any {
+                        it.contains("MODIFY_AUDIO_ROUTING", true) && it.contains("granted=true", true)
+                    }
+                    val routeHint = lines.any {
+                        it.contains("r_submix", true) || it.contains("remote_submix", true) ||
+                          it.contains("policy mix", true)
+                    }
+                    SeqRuntime.log("Exclusive PCM audit shellVerified=${uid == "2000"} permissionHint=$privilegedPermission remoteSubmixHint=$routeHint registered=false")
+                    if (uid != "2000") "ADB shell identity not verified · no routing changes"
+                    else "Audio routing permission hint=$privilegedPermission · submix hint=$routeHint\n" +
+                      "Exclusive policy NOT registered · original playback NOT suppressed\n" +
+                      "No protected audio or DRM capture bypass attempted"
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("Exclusive PCM audit failed: " + failure.javaClass.simpleName)
+                "Exclusive PCM audit unavailable: " + failure.javaClass.simpleName
+            }
+            exclusiveAudit.value = result
         }
     }
 
