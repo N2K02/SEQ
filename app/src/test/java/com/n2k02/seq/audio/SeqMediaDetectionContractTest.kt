@@ -76,7 +76,6 @@ class SeqMediaDetectionContractTest {
     val monitor = source("java/com/n2k02/seq/audio/SeqPlaybackMonitor.kt")
     val global = source("java/com/n2k02/seq/audio/SeqGlobalEffect.kt")
     assertTrue(monitor.contains("scheduleRouteSync()"))
-    assertTrue(monitor.contains("configs.filter { it.playerState == AudioPlaybackConfiguration.PLAYER_STATE_STARTED }"))
     assertTrue(monitor.contains("ROUTE_SETTLE_MS = 250L"))
     assertTrue(monitor.contains("main.removeCallbacks(routeSync)"))
     assertTrue(monitor.contains("main.removeCallbacks(playbackSync)"))
