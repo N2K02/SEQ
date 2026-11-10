@@ -148,6 +148,7 @@ object SeqPlaybackMonitor {
     val ctx = app ?: return
     mediaVolume.value = SeqRoute.volumeFraction(ctx)
     SeqAdaptiveAnalyzer.sync(ctx, mediaActive.value)
+    HuaweiNativeEq.sync(ctx)
     SeqGlobalEffect.sync(ctx)
   }
 
