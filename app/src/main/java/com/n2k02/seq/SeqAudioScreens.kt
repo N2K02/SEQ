@@ -87,161 +87,6 @@ internal fun ResponseGraph(gains: List<Float>, description: String, onBand: ((In
 private fun graphBand(x: Float, width: Float, count: Int) =
   (x / width * (count - 1)).roundToInt().coerceIn(0, count - 1)
 
-private val factoryPresets = linkedMapOf(
-  "Flat" to List(10) { 0f },
-  "Smooth" to listOf(0f, 0f, 0.5f, 1f, 0.5f, 0f, -0.5f, -1f, -1.5f, -1.5f),
-  "Rock" to listOf(3f, 3f, 2f, 0f, -1f, -1f, 1f, 2f, 3f, 3f),
-  "Club" to listOf(4f, 4f, 2f, 0f, -1f, 0f, 1f, 2f, 2f, 1f),
-  "Cinematic" to listOf(3f, 3f, 1f, -1f, 0f, 1f, 2f, 2f, 1f, 0f),
-  "Acoustic" to listOf(0f, 1f, 1f, 0f, 0f, 1f, 2f, 2f, 1f, 0f)
-)
-
-@Composable
-internal fun EqualizerScreen(initial: List<Float>, manualActive: Boolean,
-  settings: EngineSettings, positivePreamp: Boolean, compareEnabled: Boolean,
-  onCompare: (Boolean) -> Boolean, onControls: (EngineSettings) -> Unit,
-  onApply: (List<Float>) -> Unit, onSave: (String, List<Float>) -> Unit) {
-  val compactCount = SystemEqCurveBuilder.COMPACT_BAND_COUNT
-  val precisionCount = SystemEqCurveBuilder.BAND_COUNT
-  var count by rememberSaveable { mutableIntStateOf(compactCount) }
-  var compact by rememberSaveable {
-    mutableStateOf(ArrayList(if (initial.size == compactCount) initial else SystemEqCurveBuilder.resample(initial, compactCount)))
-  }
-  var precision by rememberSaveable {
-    mutableStateOf(if (initial.size == precisionCount) ArrayList(initial) else null)
-  }
-  val bands = if (count == compactCount) compact else checkNotNull(precision)
-  fun updateBands(next: List<Float>) {
-    if (count == compactCount) compact = ArrayList(next) else precision = ArrayList(next)
-  }
-  var showSave by rememberSaveable { mutableStateOf(false) }
-  var name by rememberSaveable { mutableStateOf("") }
-  val limit = SystemEqCurveBuilder.MANUAL_LIMIT_DB
-  AudioCard {
-    Text("Equalizer bands", style = MaterialTheme.typography.titleLarge)
-    Text("10 easy controls, with 31-band processing. Advanced editing remains available.", style = MaterialTheme.typography.bodySmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      listOf(compactCount, precisionCount).forEach { choice ->
-        FilterChip(selected = count == choice, onClick = {
-          if (choice == precisionCount && precision == null) {
-            precision = ArrayList(SystemEqCurveBuilder.resample(bands, precisionCount))
-          }
-          count = choice
-        }, label = { Text("$choice bands") }, modifier = Modifier.weight(1f))
-      }
-    }
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      factoryPresets.forEach { (name, gains) ->
-        val draft = SystemEqCurveBuilder.resample(gains, count)
-        FilterChip(selected = draft == bands, onClick = { updateBands(draft) }, label = { Text(name) })
-      }
-    }
-    val compactMode = count == compactCount
-    val scrollState = rememberScrollState()
-    val scroll = if (compactMode) Modifier else Modifier.horizontalScroll(scrollState)
-    Text(if (compactMode) "Manual tuning" else "Manual tuning • Swipe for more bands",
-      style = MaterialTheme.typography.bodySmall)
-    val centres = SystemEqCurveBuilder.centres(count)
-    Row(Modifier.fillMaxWidth().then(scroll)) {
-      bands.forEachIndexed { i, gain ->
-        val centre = centres[i]
-        val label = when {
-          centre < 1000 -> centre.roundToInt().toString()
-          compactMode -> "${(centre / 1000).roundToInt()}k"
-          else -> String.format(Locale.ROOT, "%.1fk", centre / 1000)
-        }
-        val column = if (compactMode) Modifier.weight(1f) else Modifier.width(52.dp)
-        Column(column, horizontalAlignment = Alignment.CenterHorizontally) {
-          Slider(value = gain, onValueChange = { level ->
-            updateBands(bands.toMutableList().also { it[i] = (level * 2).roundToInt() / 2f })
-          }, valueRange = -limit..limit, modifier = Modifier.width(48.dp).height(140.dp)
-            .semantics { contentDescription = "${centre.roundToInt()} Hz gain" }
-            .graphicsLayer { rotationZ = -90f }
-            .layout { measurable, constraints ->
-              val placeable = measurable.measure(Constraints.fixed(constraints.maxHeight, constraints.maxWidth))
-              layout(constraints.maxWidth, constraints.maxHeight) {
-                placeable.place((constraints.maxWidth - placeable.width) / 2,
-                  (constraints.maxHeight - placeable.height) / 2)
-              }
-            })
-          Text(label, style = MaterialTheme.typography.labelSmall)
-          Text(String.format(Locale.ROOT, "%+.1f", gain), style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
-      }
-    }
-    ResponseGraph(bands, "Manual equalizer response. Drag to adjust or tap to reset a band.") { index, gain ->
-      updateBands(bands.toMutableList().also { it[index] = gain })
-    }
-    Text("Gain in dB • OEM EQ uses its available bands.", style = MaterialTheme.typography.bodySmall)
-  }
-  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-    OutlinedButton(onClick = { updateBands(List(bands.size) { 0f }) },
-      modifier = Modifier.weight(1f)) { Text("Reset") }
-    FilledTonalButton(onClick = { showSave = true }, modifier = Modifier.weight(1.4f)) { Text("Save preset") }
-  }
-  Button(onClick = { onApply(bands.toList()) }, enabled = !manualActive || bands != initial, modifier = Modifier.fillMaxWidth()) {
-    Text(if (manualActive && bands == initial) "Manual tuning selected" else "Apply manual tuning")
-  }
-  val compare by rememberUpdatedState(onCompare)
-  var held by remember { mutableStateOf(false) }
-  DisposableEffect(Unit) { onDispose { compare(false) } }
-  if (compareEnabled) {
-    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer,
-      modifier = Modifier.fillMaxWidth().pointerInput(Unit) {
-        detectTapGestures(onPress = {
-          held = compare(true)
-          try { tryAwaitRelease() } finally {
-            held = false
-            compare(false)
-          }
-        })
-      }) {
-      Box(Modifier.fillMaxWidth().padding(14.dp), contentAlignment = Alignment.Center) {
-        Text(if (held) "A/B comparison" else "Hold for A/B comparison")
-      }
-    }
-  }
-  AudioCard {
-    OutputSlider("Bass Boost", settings.bassBoost, 0f..1f, { "${(it * 100).roundToInt()}%" }) {
-      onControls(settings.copy(bassBoost = it))
-    }
-    OutputSlider("Preamp", settings.preampDb.coerceAtMost(if (positivePreamp) 6f else 0f),
-      -12f..(if (positivePreamp) 6f else 0f), { String.format(Locale.ROOT, "%+.1f dB", it) }) {
-      onControls(settings.copy(preampDb = it))
-    }
-    if (!positivePreamp) Text("Positive gain requires an active peak limiter.",
-      style = MaterialTheme.typography.bodySmall)
-  }
-  AudioCard {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Column(Modifier.weight(1f)) {
-        Text("Smart Dynamic Bass", style = MaterialTheme.typography.titleMedium)
-        Text("Adds bass at lower volumes", style = MaterialTheme.typography.bodySmall)
-      }
-      Switch(checked = settings.dynamicBass, onCheckedChange = { onControls(settings.copy(dynamicBass = it)) })
-    }
-    if (settings.dynamicBass) {
-      OutputSlider("Intensity", settings.bassIntensity, 0f..1f, { "${(it * 100).roundToInt()}%" }) {
-        onControls(settings.copy(bassIntensity = it))
-      }
-    }
-  }
-  if (showSave) AlertDialog(
-    onDismissRequest = { showSave = false },
-    title = { Text("Save preset") },
-    text = { OutlinedTextField(value = name, onValueChange = { name = it.take(40) },
-      label = { Text("Preset name") }, singleLine = true) },
-    confirmButton = {
-      TextButton(enabled = name.isNotBlank(), onClick = {
-        onSave(name.trim(), bands.toList())
-        showSave = false
-        name = ""
-      }) { Text("Save") }
-    },
-    dismissButton = { TextButton(onClick = { showSave = false }) { Text("Cancel") } }
-  )
-}
-
 @Composable
 private fun OutputSlider(title: String, value: Float, range: ClosedFloatingPointRange<Float>,
   format: (Float) -> String, onApply: (Float) -> Unit) {
@@ -308,7 +153,7 @@ internal fun SignalPathScreen(status: EngineStatus, output: String, settings: En
     add(if (settings.allMedia) "Android output mix" else "Compatible app session")
     if (settings.enabled && settings.profile != AudioProfile.PURE) {
       if (!oem) add("Input headroom")
-      add(if (oem) "OEM equalizer" else "31-band EQ")
+      add(if (oem) "OEM equalizer" else "10-band EQ")
       if (!oem && settings.compressorEnabled) add("3-band compressor")
       if (!oem && settings.peakGuard) add("Peak limiter")
     }
@@ -416,7 +261,7 @@ internal fun SimpleEqualizerScreen(
           }, label = { Text(mode.title) })
       }
     }
-    Text(if (custom) "Custom sound • saved for this output" else "Fine tune • 10 bands",
+    Text(if (custom && gains.all { it == 0f }) "Flat • default sound" else if (custom) "Custom sound • saved for this output" else "Fine tune • 10 bands",
       style = MaterialTheme.typography.titleMedium)
     val centres = SystemEqCurveBuilder.centres(count)
     Row(Modifier.fillMaxWidth()) {
