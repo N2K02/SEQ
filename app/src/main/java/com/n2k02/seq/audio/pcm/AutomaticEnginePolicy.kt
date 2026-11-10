@@ -1,30 +1,36 @@
 package com.n2k02.seq.audio.pcm
 
 /**
- * Chooses exactly one output backend. Native processing is preferred only when it
- * can replace the original playback stream; playback capture alone is never proof.
+ * Chooses exactly one output backend. SEQ DSP (playback capture → PCM DSP → replay, with each
+ * captured app's direct output muted per session) is the default; Android's output-mix effect
+ * is the automatic fallback whenever one prerequisite is missing.
  *
- * This is a pure policy component. It does not grant permissions, start capture,
- * or claim that an Android audio route is exclusive.
+ * Pure policy: it grants nothing and starts nothing.
  */
 internal object AutomaticEnginePolicy {
   enum class Backend { NATIVE_PCM, PLATFORM_EFFECT, BYPASS }
   data class Evidence(
     val enabled: Boolean,
-    val ownPcmStream: Boolean = false,
-    val exclusivePolicyVerified: Boolean = false,
-    val originalOutputSuppressed: Boolean = false,
-    val outputRouteVerified: Boolean = false,
-    val rollbackReady: Boolean = false,
+    /** User setting; on by default. */
+    val dspWanted: Boolean = true,
+    /** RECORD_AUDIO: required by Android for playback capture. */
+    val recordAudio: Boolean = false,
+    /** DUMP: needed to find each app's audio session so its direct sound can be muted. */
+    val dumpGranted: Boolean = false,
+    /** A live MediaProjection token from Android's capture consent. */
+    val captureConsent: Boolean = false,
+    /** Session mute (DynamicsProcessing) available, so replay never doubles the sound. */
+    val sessionMuteAvailable: Boolean = false,
     val platformEffectSupported: Boolean = false
   )
 
   fun choose(e: Evidence): Backend = when {
     !e.enabled -> Backend.BYPASS
-    e.ownPcmStream -> Backend.NATIVE_PCM
-    e.exclusivePolicyVerified && e.originalOutputSuppressed &&
-      e.outputRouteVerified && e.rollbackReady -> Backend.NATIVE_PCM
+    dspReady(e) -> Backend.NATIVE_PCM
     e.platformEffectSupported -> Backend.PLATFORM_EFFECT
     else -> Backend.BYPASS
   }
+
+  fun dspReady(e: Evidence): Boolean = e.dspWanted && e.recordAudio && e.dumpGranted &&
+    e.captureConsent && e.sessionMuteAvailable
 }

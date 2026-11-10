@@ -1,5 +1,6 @@
 package com.n2k02.seq.audio
 
+import com.n2k02.seq.audio.dsp.SeqDspRuntime
 import android.app.UiModeManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -149,6 +150,7 @@ object SeqPlaybackMonitor {
     mediaVolume.value = SeqRoute.volumeFraction(ctx)
     SeqAdaptiveAnalyzer.sync(ctx, mediaActive.value)
     HuaweiNativeEq.sync(ctx)
+    SeqDspRuntime.requestScan()
     SeqGlobalEffect.sync(ctx)
   }
 

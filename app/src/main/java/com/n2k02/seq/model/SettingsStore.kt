@@ -26,7 +26,9 @@ class SettingsStore(context: Context) {
       compressorRatio = readLevel("compressor_ratio", 1.5f, 1f..4f),
       compressorThresholdDb = readLevel("compressor_threshold", -18f, -36f..-6f),
       dynamicBass = prefs.getBoolean("dynamic_bass", false),
-      bassIntensity = readLevel("bass_intensity", 0.35f, 0f..1f)
+      bassIntensity = readLevel("bass_intensity", 0.35f, 0f..1f),
+      dspEngine = prefs.getBoolean("dsp_engine", true),
+      leveler = prefs.getBoolean("leveler", false)
     )
   }
   fun write(s: EngineSettings) {
@@ -43,6 +45,7 @@ class SettingsStore(context: Context) {
       .putFloat("compressor_ratio", s.compressorRatio)
       .putFloat("compressor_threshold", s.compressorThresholdDb)
       .putBoolean("dynamic_bass", s.dynamicBass).putFloat("bass_intensity", s.bassIntensity)
+      .putBoolean("dsp_engine", s.dspEngine).putBoolean("leveler", s.leveler)
       .putBoolean("all_media",s.allMedia).putBoolean("loudness",s.loudness).apply()
   }
   /**
@@ -51,7 +54,8 @@ class SettingsStore(context: Context) {
    */
   fun resetSound(activeRoute: RouteKind? = null) {
     val enabled = prefs.getBoolean("enabled", false)
-    val editor = prefs.edit().clear().putBoolean("enabled", enabled)
+    val dsp = prefs.getBoolean("dsp_engine", true)
+    val editor = prefs.edit().clear().putBoolean("enabled", enabled).putBoolean("dsp_engine", dsp)
     // Write flat 10-band gains in the same transaction as the reset.
     // Otherwise automatic tone reconstruction redraws nonzero sliders.
     if (activeRoute != null) {
@@ -60,6 +64,11 @@ class SettingsStore(context: Context) {
     }
     editor.apply()
   }
+
+  /** User cancelled Android's capture prompt: do not auto-ask again until they opt in. */
+  var dspDeclined: Boolean
+    get() = prefs.getBoolean("dsp_declined", false)
+    set(value) { prefs.edit().putBoolean("dsp_declined", value).apply() }
 
   private fun readLevel(key: String, default: Float, range: ClosedFloatingPointRange<Float>) =
     prefs.getFloat(key, default).takeIf { it in range } ?: default

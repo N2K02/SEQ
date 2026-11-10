@@ -7,36 +7,23 @@ class AutomaticEnginePolicyTest {
   private val platform = AutomaticEnginePolicy.Backend.PLATFORM_EFFECT
   private val native = AutomaticEnginePolicy.Backend.NATIVE_PCM
   private val bypass = AutomaticEnginePolicy.Backend.BYPASS
+  private val ready = AutomaticEnginePolicy.Evidence(enabled = true, recordAudio = true,
+    dumpGranted = true, captureConsent = true, sessionMuteAvailable = true,
+    platformEffectSupported = true)
 
   @Test fun disabledAlwaysBypasses() {
-    assertEquals(bypass, AutomaticEnginePolicy.choose(
-      AutomaticEnginePolicy.Evidence(enabled = false, ownPcmStream = true, platformEffectSupported = true)))
+    assertEquals(bypass, AutomaticEnginePolicy.choose(ready.copy(enabled = false)))
   }
 
-  @Test fun seqOwnedPcmPrefersNative() {
-    assertEquals(native, AutomaticEnginePolicy.choose(
-      AutomaticEnginePolicy.Evidence(enabled = true, ownPcmStream = true, platformEffectSupported = true)))
+  @Test fun seqDspIsTheDefaultWhenEveryPrerequisiteHolds() {
+    assertEquals(native, AutomaticEnginePolicy.choose(ready))
   }
 
-  @Test fun captureCopyDoesNotEstablishExclusiveRouting() {
-    assertEquals(platform, AutomaticEnginePolicy.choose(
-      AutomaticEnginePolicy.Evidence(enabled = true, platformEffectSupported = true)))
-  }
-
-  @Test fun verifiedExclusiveRoutePrefersNative() {
-    assertEquals(native, AutomaticEnginePolicy.choose(
-      AutomaticEnginePolicy.Evidence(true, exclusivePolicyVerified = true,
-        originalOutputSuppressed = true, outputRouteVerified = true,
-        rollbackReady = true, platformEffectSupported = true)))
-  }
-
-  @Test fun everyExclusiveSafetyConditionIsMandatory() {
-    for (missing in 0..3) {
-      val flags = BooleanArray(4) { it != missing }
-      assertEquals(platform, AutomaticEnginePolicy.choose(
-        AutomaticEnginePolicy.Evidence(true, exclusivePolicyVerified = flags[0],
-          originalOutputSuppressed = flags[1], outputRouteVerified = flags[2],
-          rollbackReady = flags[3], platformEffectSupported = true)))
+  @Test fun everyDspPrerequisiteIsMandatoryAndFallsBackToPlatform() {
+    listOf(ready.copy(dspWanted = false), ready.copy(recordAudio = false),
+      ready.copy(dumpGranted = false), ready.copy(captureConsent = false),
+      ready.copy(sessionMuteAvailable = false)).forEach {
+      assertEquals(platform, AutomaticEnginePolicy.choose(it))
     }
   }
 

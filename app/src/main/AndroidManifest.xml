@@ -3,7 +3,7 @@
   <uses-permission android:name="android.permission.DUMP" tools:ignore="ProtectedPermissions"/>
   <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
   <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
-  <!-- SEQ Auto analyses the mixed output spectrum (Visualizer); the microphone is never used. -->
+  <!-- Output analysis (Visualizer) and SEQ DSP playback capture; the microphone is never used. -->
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
@@ -42,9 +42,10 @@
     <service android:name=".audio.SeqPcmCaptureProbeService"
         android:exported="false"
         android:foregroundServiceType="mediaProjection" />
+    <!-- SEQ DSP: mediaProjection is added only after Android's capture consent. -->
     <service android:name=".audio.SeqEngineService"
         android:exported="false"
-        android:foregroundServiceType="mediaPlayback" />
+        android:foregroundServiceType="mediaPlayback|mediaProjection" />
 
     <service android:name=".adb.SeqPairingAccessibilityService"
         android:exported="true"

@@ -238,6 +238,8 @@ internal fun SimpleEqualizerScreen(
   enabled: Boolean,
   spatialMode: SpatialMode,
   spatialIntensity: Float,
+  /** SEQ DSP running: every 3D mode, including hall and 8D, is available. */
+  pcmEngine: Boolean = false,
   onBands: (List<Float>) -> Unit,
   onMode: (SoundMode) -> Unit,
   onBass: (Float) -> Unit,
@@ -262,13 +264,13 @@ internal fun SimpleEqualizerScreen(
       horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       SpatialMode.entries.forEach { mode ->
         FilterChip(selected = spatialMode == mode,
-          enabled = enabled && mode.platformSupported,
+          enabled = enabled && (pcmEngine || mode.platformSupported),
           onClick = { onSpatial(mode, spatialIntensity) },
           label = { Text(mode.label) })
       }
     }
     Text(spatialMode.blurb, style = MaterialTheme.typography.bodySmall)
-    if (spatialMode != SpatialMode.OFF && spatialMode.platformSupported) {
+    if (spatialMode != SpatialMode.OFF && (pcmEngine || spatialMode.platformSupported)) {
       var draftStrength by remember(spatialIntensity) { mutableFloatStateOf(spatialIntensity) }
       val latestOnSpatial by rememberUpdatedState(onSpatial)
       LaunchedEffect(draftStrength, spatialMode) {
@@ -281,10 +283,12 @@ internal fun SimpleEqualizerScreen(
         onValueChange = { draftStrength = it },
         valueRange = 0f..1f, enabled = enabled,
         modifier = Modifier.semantics { contentDescription = "3D sound strength" })
-      Text("Strength • ${(draftStrength * 100).roundToInt()}% • Android virtualization support varies by output",
+      Text("Strength • ${(draftStrength * 100).roundToInt()}%" +
+        if (pcmEngine) " • SEQ DSP" else " • Android virtualization support varies by output",
         style = MaterialTheme.typography.bodySmall)
     }
-    Text("Concert hall and 8D orbit require direct PCM processing and are unavailable for other apps.",
+    Text(if (pcmEngine) "All 3D modes run in the SEQ DSP engine."
+      else "Concert hall and 8D orbit start automatically with the SEQ DSP engine.",
       style = MaterialTheme.typography.bodySmall)
   }
   AudioCard {

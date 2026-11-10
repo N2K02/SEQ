@@ -5,7 +5,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.media.projection.MediaProjectionConfig
+import android.media.projection.MediaProjectionManager
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -43,6 +46,8 @@ import com.n2k02.seq.audio.SeqAdaptiveAnalyzer
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.audio.SeqRoute
 import com.n2k02.seq.audio.HuaweiNativeEq
+import com.n2k02.seq.audio.dsp.SeqDspEngine
+import com.n2k02.seq.audio.dsp.SeqDspRuntime
 import com.n2k02.seq.model.*
 import com.n2k02.seq.adb.LocalAdbDiagnostics
 import com.n2k02.seq.adb.SeqAdbRecoveryWorker
@@ -77,6 +82,62 @@ class MainActivity : ComponentActivity() {
   private lateinit var store: SettingsStore
   private lateinit var adb: LocalAdbDiagnostics
   private var permissionRevision by mutableIntStateOf(0)
+  /** One automatic capture prompt per launch; user actions may ask again. */
+  private var dspAsked = false
+  private var dspSetupTried = false
+  private val recordLauncher = registerForActivityResult(
+    ActivityResultContracts.RequestPermission()) { granted ->
+    permissionRevision++
+    if (granted) requestDsp(true)
+  }
+  private val projectionLauncher = registerForActivityResult(
+    ActivityResultContracts.StartActivityForResult()) { result ->
+    val consent = result.data
+    if (result.resultCode == RESULT_OK && consent != null) {
+      store.dspDeclined = false
+      runCatching { ContextCompat.startForegroundService(this, SeqEngineService.dspIntent(this, consent)) }
+        .onFailure { SeqRuntime.log("SEQ DSP start failed: " + it.javaClass.simpleName) }
+    } else {
+      store.dspDeclined = true
+      SeqRuntime.log("SEQ DSP capture declined; Android effect fallback")
+    }
+  }
+
+  /**
+   * SEQ DSP is automatic: missing DUMP/RECORD_AUDIO grants are set up once over ADB, then
+   * Android's capture consent is requested (pre-approved by the PROJECT_MEDIA app-op, so
+   * usually no dialog). Everything falls back to the Android effect if a step is refused.
+   */
+  private fun requestDsp(user: Boolean) {
+    val s = store.read()
+    if (!SeqDspRuntime.wanted(s) || SeqDspRuntime.active) return
+    if (!user && (dspAsked || store.dspDeclined)) return
+    val ready = SeqDspRuntime.readiness(this)
+    if (!ready.dump) {
+      if (!user && dspSetupTried) return
+      dspSetupTried = true
+      adb.prepareDspPermissions { ok -> if (ok) runOnUiThread { requestDsp(user) } }
+      return
+    }
+    if (!ready.recordAudio) {
+      recordLauncher.launch(Manifest.permission.RECORD_AUDIO)
+      return
+    }
+    dspAsked = true
+    val manager = getSystemService(MediaProjectionManager::class.java)
+    val consent = if (Build.VERSION.SDK_INT >= 34)
+      manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+    else manager.createScreenCaptureIntent()
+    runCatching { projectionLauncher.launch(consent) }
+      .onFailure { SeqRuntime.log("SEQ DSP consent unavailable: " + it.javaClass.simpleName) }
+  }
+
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    if (intent.getBooleanExtra(SeqEngineService.EXTRA_RESUME_DSP, false)) requestDsp(true)
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     SeqPlaybackMonitor.start(this)
@@ -106,6 +167,7 @@ class MainActivity : ComponentActivity() {
       val updateStatus by SeqUpdater.controller.status.collectAsState()
       val experimentalEnabled by SeqUpdater.experimentalEnabled.collectAsState()
       val status by SeqRuntime.status.collectAsState()
+      val dsp by SeqDspEngine.status.collectAsState()
       val externalPlayer by SeqMediaSessionListener.detectedPlayer.collectAsState()
       val mediaListenerConnected by SeqMediaSessionListener.connected.collectAsState()
       val mediaActive by SeqPlaybackMonitor.mediaActive.collectAsState()
@@ -187,11 +249,14 @@ class MainActivity : ComponentActivity() {
                         Text("Sound", style = MaterialTheme.typography.titleLarge)
                         Text(when {
                           !settings.enabled -> "Off"
+                          dsp.processing -> "SEQ DSP engine • " + (if (dsp.apps == 1) "1 app" else "${dsp.apps} apps") +
+                            " • ${dsp.sampleRate / 1000} kHz"
+                          dsp.running -> "SEQ DSP engine ready • play music"
                           status.nativeActive -> "FreeBuds hardware EQ confirmed"
                           status.globalActive && activeRoute == RouteKind.BLUETOOTH -> "Android EQ attached • Bluetooth path unverified"
                           status.processing -> "Sound enhancement active"
                           else -> "On • " + status.lastEvent
-                        }, color = if (status.processing) accent else quiet,
+                        }, color = if (status.processing || dsp.running) accent else quiet,
                           style = MaterialTheme.typography.bodySmall)
                       }
                       Switch(checked = settings.enabled, onCheckedChange = { on ->
@@ -200,11 +265,12 @@ class MainActivity : ComponentActivity() {
                           requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 109)
                         }
                         update(settings.copy(enabled = on, profile = AudioProfile.AUTO, allMedia = true))
+                        if (on) { dspAsked = false; requestDsp(false) }
                       })
                     }
                     Text(if (mediaActive) "Media playing • $output" else "Ready • $output",
                       style = MaterialTheme.typography.bodyMedium)
-                    if (settings.enabled && !status.processing) Text(
+                    if (settings.enabled && !status.processing && !dsp.running) Text(
                       "Android may limit effects on some apps, offloaded audio or Android Auto outputs.",
                       style = MaterialTheme.typography.bodySmall, color = quiet)
                     if (adbState.connected) Text("ADB connected", color = accent,
@@ -263,6 +329,7 @@ class MainActivity : ComponentActivity() {
                       enabled = settings.enabled,
                       spatialMode = settings.spatialMode,
                       spatialIntensity = settings.spatialIntensity,
+                      pcmEngine = dsp.running,
                       onPreset = { name ->
                         MRadioPresets.bands(name)?.let { bands ->
                           store.saveRouteBands(activeRoute, bands)
@@ -311,6 +378,48 @@ class MainActivity : ComponentActivity() {
                     Text("No manual Apply or Save steps. Choose a sound style or adjust the equalizer on Home.",
                       style = MaterialTheme.typography.bodySmall)
                   }
+                  val ready = remember(permissionRevision, dsp) { SeqDspRuntime.readiness(this@MainActivity) }
+                  AudioCard {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                      Column(Modifier.weight(1f)) {
+                        Text("SEQ DSP engine", style = MaterialTheme.typography.titleMedium)
+                        Text(when {
+                          !settings.dspEngine -> "Off • Android effects only"
+                          dsp.processing -> "Active • " + (if (dsp.apps == 1) "1 app" else "${dsp.apps} apps") +
+                            " • ${dsp.sampleRate / 1000} kHz • ~${dsp.latencyMs} ms"
+                          dsp.running -> "Active • waiting for music"
+                          !ready.dump -> "Connect ADB once • setup is automatic"
+                          !settings.enabled -> "Starts with Sound"
+                          else -> "Ready • starts automatically"
+                        }, style = MaterialTheme.typography.bodySmall,
+                          color = if (dsp.running) accent else quiet)
+                      }
+                      Switch(checked = settings.dspEngine, onCheckedChange = { on ->
+                        update(settings.copy(dspEngine = on))
+                        if (on) { store.dspDeclined = false; requestDsp(true) }
+                      })
+                    }
+                    Text("Recommended. Processes every app's audio in 32-bit float: true parametric EQ, " +
+                      "concert hall, 8D, crossfeed and a lookahead limiter. If an app blocks capture, " +
+                      "SEQ tunes it with Android's effect instead.", style = MaterialTheme.typography.bodySmall)
+                    if (dsp.fallbackSessions > 0) Text("${dsp.fallbackSessions} protected player(s) use Android EQ",
+                      style = MaterialTheme.typography.bodySmall, color = quiet)
+                    if (settings.dspEngine && settings.enabled && !dsp.running && ready.ready) {
+                      OutlinedButton(onClick = { requestDsp(true) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Start SEQ DSP")
+                      }
+                    }
+                    HorizontalDivider()
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                      Column(Modifier.weight(1f)) {
+                        Text("Even volume", style = MaterialTheme.typography.titleSmall)
+                        Text("Keeps songs and apps at a similar loudness • always on in the car",
+                          style = MaterialTheme.typography.bodySmall, color = quiet)
+                      }
+                      Switch(checked = settings.leveler, enabled = settings.dspEngine,
+                        onCheckedChange = { on -> update(settings.copy(leveler = on)) })
+                    }
+                  }
                   MenuRow("ADB connection", "Optional connection and recovery", Icons.Rounded.SettingsInputAntenna) {
                     page = Page.ADB_CONNECTION
                   }
@@ -347,6 +456,10 @@ class MainActivity : ComponentActivity() {
     SeqGlobalEffect.sync(this)
     adb.resumed()
     SeqUpdater.onResume(this)
+    if (intent?.getBooleanExtra(SeqEngineService.EXTRA_RESUME_DSP, false) == true) {
+      intent.removeExtra(SeqEngineService.EXTRA_RESUME_DSP)
+      requestDsp(true)
+    } else if (store.read().enabled) requestDsp(false)
   }
   override fun onPause() {
     SeqGlobalEffect.compare(this, false)

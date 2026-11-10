@@ -4,7 +4,30 @@ Upstream: https://github.com/bshea-1/RootlessBrennanDSP (GPL-3.0).
 Source is a reference, not vendored or copied. Any direct reuse of GPL code
 requires an explicit licensing decision and GPL-compatible distribution.
 
-## Implemented in experimental PR #3
+## SEQ DSP — default engine (experimental PR #3, Nov 10 2026)
+RootlessBrennanDSP's rootless architecture is now SEQ's default engine. It is an independent
+Kotlin implementation. No GPL source or libjamesdsp native code is vendored, so SEQ's licence is unchanged.
+
+| BrennanDSP | SEQ DSP |
+|---|---|
+| MediaProjection AudioPlaybackCapture (MEDIA/GAME/UNKNOWN), own UID excluded | `SeqDspEngine.buildRecorder` |
+| Per-session mute via DynamicsProcessing −96 dB (`MutedAudioEffectFactory`) | `SeqSessionMuter` (control-loss → fallback) |
+| DUMP-based session discovery (`dumpsys audio`, `media.audio_policy`) | `SeqSessionDumpParser` / `SeqServiceDumper` |
+| SPSC ring, capture/render threads at URGENT_AUDIO, HAL-burst chunks, pre-roll, drift trim | `SeqPcmRingBuffer.trimTo/flush`, `SeqDspEngine.startThreads` |
+| AudioTrack ALLOW_CAPTURE_BY_NONE, SPATIALIZATION_BEHAVIOR_NEVER, routing-change flush, 50 ms fade-in | `buildTrack`, `SeqDspChain.reset` |
+| Hard output clamp (anti-clipping) | `SeqDspChain.limit` (lookahead limiter + clamp) |
+| JamesDSP PEQ/bass/stereo/convolver | `SeqDspPlanner` biquads, crossfeed, width, hall, 8D, compressor, Even volume |
+| Idle suspend | recorder/track stop when no processed session is playing |
+
+Intentionally **not** ported: Shizuku `setAllowedCapturePolicy` bypass. SEQ never overrides an app's
+capture restriction. Such apps keep their direct sound and get a per-session Android effect. A silent-capture
+watchdog moves an app to the fallback if capture yields no signal after it was muted. Reflection-based
+`createProjection` reuse is also not ported. A new consent comes from the app/notification instead.
+
+Device tests still required: Spotify / YouTube Music / Chrome / a protected player, Bluetooth A2DP/LE,
+wired, speaker, Android Auto (wired + wireless), route switches mid-song, reboot and Quit.
+
+## Earlier reference work in experimental PR #3
 - Bounded stereo single-producer/single-consumer ring buffer with underflow silence,
   no overwrite, and explicit shutdown. Inspired by upstream's ring-buffer
   capture/render split but independently implemented.

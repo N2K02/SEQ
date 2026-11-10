@@ -1,6 +1,7 @@
 package com.n2k02.seq.audio
 
 import android.content.Context
+import com.n2k02.seq.audio.dsp.SeqDspRuntime
 import com.n2k02.seq.model.SettingsStore
 import com.n2k02.seq.model.SpatialMode
 import com.n2k02.seq.model.SystemEqCurveBuilder
@@ -41,6 +42,12 @@ object SeqGlobalEffect {
     app = ctx
     val store = SettingsStore(ctx)
     val s = store.read()
+    if (SeqDspRuntime.active) {
+      // SEQ DSP replays processed audio itself; an output-mix effect would process it twice.
+      if (effect != null || spatialEffect != null) release("SEQ DSP engine active")
+      SeqDspRuntime.retune?.invoke()
+      return
+    }
     if (HuaweiNativeEq.activeFor(ctx)) {
       release("Huawei native EQ verified; Android effect bypassed")
       SeqRuntime.status.value = SeqRuntime.status.value.copy(nativeActive = true,

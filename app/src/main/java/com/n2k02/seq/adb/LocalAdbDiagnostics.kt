@@ -40,6 +40,10 @@ object AdbAccessPolicy {
     fun port(input: String): Int? = input.toIntOrNull()?.takeIf { it in 1..65535 }
     fun pairingCode(code: String): Boolean = code.matches(Regex("[0-9]{6}"))
     fun verifiedUid(output: String): Boolean = output.trim() == "2000"
+    /** SEQ DSP one-time setup; SEQ's own package only. */
+    const val DSP_SETUP = "pm grant com.n2k02.seq android.permission.DUMP; " +
+        "pm grant com.n2k02.seq android.permission.RECORD_AUDIO; " +
+        "appops set com.n2k02.seq PROJECT_MEDIA allow"
     // Bounded, read-only observations. ADB dumpsys does not expose assignable AudioEffect sessions.
     const val PLAYER_PROBE =
         "dumpsys media.audio_flinger | grep -E -i '(track|session|offload|a2dp|bluetooth)' | head -n 35"
@@ -198,6 +202,43 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
                 "DUMP permission unavailable: " + failure.javaClass.simpleName
             }
             dumpGrant.value = result
+        }
+    }
+
+    val dspGrant = MutableStateFlow("SEQ DSP permissions not checked")
+    @Volatile private var dspGrantRunning = false
+
+    /** One-time automatic setup for SEQ DSP over the verified UID 2000 shell:
+     * DUMP (find app audio sessions), RECORD_AUDIO (playback capture) and the PROJECT_MEDIA
+     * app-op (Android then approves SEQ's own capture request without a dialog).
+     * Fixed command, SEQ's own package only; never changes another app.
+     */
+    fun prepareDspPermissions(onDone: (Boolean) -> Unit = {}) {
+        if (shutDown || dspGrantRunning) return
+        dspGrantRunning = true
+        scope.launch {
+            val ok = try {
+                if (!sharedCore.retry(auto = true)) {
+                    dspGrant.value = "ADB not connected · SEQ DSP setup waits for ADB"
+                    false
+                } else {
+                    sharedCore.execVerified(AdbAccessPolicy.DSP_SETUP, 8_000)
+                    val granted = dumpPermissionGranted &&
+                        app.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    dspGrant.value = if (granted) "SEQ DSP permissions ready" else "Android refused SEQ DSP permissions"
+                    SeqRuntime.log("SEQ DSP ADB setup granted=$granted")
+                    granted
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("SEQ DSP ADB setup unavailable: " + failure.javaClass.simpleName)
+                dspGrant.value = "SEQ DSP setup unavailable"
+                false
+            } finally {
+                dspGrantRunning = false
+            }
+            onDone(ok)
         }
     }
 

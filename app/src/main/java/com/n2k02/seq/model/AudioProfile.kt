@@ -40,7 +40,11 @@ data class EngineSettings(
   val compressorRatio: Float = 1.5f,
   val compressorThresholdDb: Float = -18f,
   val dynamicBass: Boolean = false,
-  val bassIntensity: Float = 0.35f
+  val bassIntensity: Float = 0.35f,
+  /** SEQ DSP (capture → DSP → render) is the default engine; Android effects are the fallback. */
+  val dspEngine: Boolean = true,
+  /** Even volume: slow leveller across songs and apps (always on in the car). */
+  val leveler: Boolean = false
 )
 
 /**

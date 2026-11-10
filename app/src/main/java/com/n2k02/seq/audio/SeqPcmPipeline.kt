@@ -58,6 +58,20 @@ class SeqPcmRingBuffer(
     return n
   }
 
+  /** Consumer thread only: drop the oldest frames so at most [keepFrames] remain.
+   * Used by SEQ DSP to keep capture → render latency bounded when clocks drift. */
+  fun trimTo(keepFrames: Int): Int {
+    require(keepFrames >= 0)
+    val available = availableFrames()
+    if (available <= keepFrames) return 0
+    val drop = available - keepFrames
+    readFrame += drop
+    return drop
+  }
+
+  /** Consumer thread only: discard everything queued (route change, recorder rebuild). */
+  fun flush() { readFrame = writeFrame }
+
   fun availableFrames(): Int = (writeFrame - readFrame).coerceIn(0L, capacityFrames.toLong()).toInt()
 
   /** Stop and mute on route loss, explicit quit, or policy revocation. */

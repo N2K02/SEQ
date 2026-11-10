@@ -32,6 +32,20 @@ class SeqPcmPipelineTest {
     assertEquals(0, q.availableFrames())
   }
 
+  @Test fun consumerTrimKeepsNewestFramesAndFlushEmpties() {
+    val q = SeqPcmRingBuffer(256)
+    val source = FloatArray(400) { it.toFloat() }
+    assertEquals(200, q.offer(source))
+    assertEquals(150, q.trimTo(50))
+    assertEquals(0, q.trimTo(80))
+    val out = FloatArray(100)
+    assertEquals(50, q.poll(out))
+    assertEquals(300f, out[0], 0f) // frame 150 survived first
+    q.offer(source, 0, 20)
+    q.flush()
+    assertEquals(0, q.availableFrames())
+  }
+
   @Test fun bufferNeverOverwritesUnreadSamples() {
     val q = SeqPcmRingBuffer(256)
     assertEquals(256, q.offer(FloatArray(600) { .25f }))

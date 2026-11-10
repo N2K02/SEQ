@@ -2,17 +2,17 @@ package com.n2k02.seq.model
 
 import kotlin.math.ln
 
-/** mRadio sound-mode labels. Only the compatible platform spatial modes can
- * affect arbitrary external audio: mRadio's hall reverb and moving 8D orbit
- * require ownership of decoded stereo PCM.
+/** mRadio sound-mode labels. Every mode runs in the SEQ DSP PCM engine.
+ * [platformSupported] marks the modes the Android Virtualizer fallback can also approximate;
+ * hall reverb and the moving 8D orbit need SEQ DSP.
  */
 enum class SpatialMode(val label: String, val blurb: String, val platformSupported: Boolean) {
   OFF("Off", "Original stereo, without spatial processing.", true),
-  WIDE("Wide", "Wider stereo where Android supports virtualization.", true),
-  HEADPHONE_3D("Headphone 3D", "Headphone spatial effect where supported.", true),
-  HALL("Concert hall", "Requires PCM reverb; unavailable for other apps.", false),
-  CINEMA("Cinema", "Expanded stereo where Android supports virtualization.", true),
-  ORBIT_8D("8D orbit", "Requires PCM movement effects; unavailable for other apps.", false)
+  WIDE("Wide", "Wider stereo image.", true),
+  HEADPHONE_3D("Headphone 3D", "Natural speaker-like crossfeed for headphones.", true),
+  HALL("Concert hall", "Concert-hall reverb • SEQ DSP engine.", false),
+  CINEMA("Cinema", "Wide stereo with a subtle room.", true),
+  ORBIT_8D("8D orbit", "Sound slowly circles your head • SEQ DSP engine.", false)
 }
 
 /** 5-band source presets ported from N2K02/MRadio SoundFx.PRESETS.
