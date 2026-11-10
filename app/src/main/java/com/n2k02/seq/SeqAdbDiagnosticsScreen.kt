@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.n2k02.seq.adb.LocalAdbDiagnostics
+import com.n2k02.seq.audio.SeqEffectCapabilities
 import com.n2k02.seq.adb.SeqPairingAccessibilityService
 import dev.n2k02.adb.core.AdbConnectionSettingsPage
 import dev.n2k02.adb.core.AdbDiagnosticsPage
@@ -47,6 +48,7 @@ internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, 
     )
     val probe by adb.playerProbe.collectAsState()
     val effects by adb.effectProbe.collectAsState()
+    val sdkEffects by SeqEffectCapabilities.summary.collectAsState()
     val grant by adb.dumpGrant.collectAsState()
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         Text("Advanced player tracking", style = MaterialTheme.typography.titleSmall)
@@ -59,5 +61,10 @@ internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, 
         Text("System effects and audio policy", style = MaterialTheme.typography.titleSmall)
         OutlinedButton(onClick = adb::inspectAudioEffects) { Text("Inspect reverb, spatial and offload") }
         Text(effects, style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { SeqEffectCapabilities.inspect() }) { Text("Inspect Android effect implementations") }
+        OutlinedButton(onClick = { SeqEffectCapabilities.summary.value = SeqEffectCapabilities.probeAuxReverb() }) {
+            Text("Check auxiliary concert-hall reverb")
+        }
+        Text(sdkEffects, style = MaterialTheme.typography.bodySmall)
     }
 }
