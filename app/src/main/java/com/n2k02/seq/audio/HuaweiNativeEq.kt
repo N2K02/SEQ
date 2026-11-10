@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import com.n2k02.seq.model.RouteKind
 import com.n2k02.seq.model.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,6 +83,9 @@ object HuaweiNativeEq {
   val status = MutableStateFlow("Not configured")
   @Volatile private var confirmedRoute: String? = null
   @Volatile private var confirmedPreset: Int? = null
+  @Volatile private var confirmedOutputKey: Pair<Boolean, List<Int>>? = null
+  @Volatile private var retryAfterMs = 0L
+  @Volatile private var generation = 0
   @Volatile var lastResult: String = "Not configured"
     private set
   private fun report(message: String) {
@@ -107,14 +111,17 @@ object HuaweiNativeEq {
   }
   fun activeFor(context: Context): Boolean =
     SettingsStore(context).read().enabled && enabled(context) && targetRoute(context) == confirmedRoute &&
-      confirmedPreset == preset(context)
+      confirmedPreset == preset(context) && confirmedOutputKey == SeqRoute.outputKey(context, SeqRoute.isCar())
 
   fun configure(context: Context, enabled: Boolean, selectedPreset: Int) {
     require(selectedPreset in HuaweiEqWire.presets)
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putBoolean("enabled", enabled).putInt("preset", selectedPreset).apply()
+    generation++
     confirmedRoute = null
     confirmedPreset = null
+    confirmedOutputKey = null
+    retryAfterMs = 0L
     job?.cancel()
     runCatching { socketInUse?.close() }
     // Restores platform DSP until a device-side preset is actually verified.
@@ -127,27 +134,35 @@ object HuaweiNativeEq {
     val route = targetRoute(app)
     if (!SettingsStore(app).read().enabled || !enabled(app) || route == null || !permitted(app)) {
       if (confirmedRoute != null) {
+        generation++
         confirmedRoute = null
         confirmedPreset = null
+        confirmedOutputKey = null
         SeqGlobalEffect.sync(app)
       }
       if (enabled(app) && !permitted(app)) report("Bluetooth permission required")
       return
     }
     val target = preset(app)
-    if (confirmedRoute == route && confirmedPreset == target) return
-    if (job?.isActive == true) return
+    val key = SeqRoute.outputKey(app, SeqRoute.isCar())
+    if (confirmedRoute == route && confirmedPreset == target && confirmedOutputKey == key) return
+    if (job?.isActive == true || SystemClock.elapsedRealtime() < retryAfterMs) return
+    val requestGeneration = ++generation
     job = scope.launch {
       val result = runCatching { writeAndVerify(app, route, target) }
-      if (targetRoute(app) != route || !enabled(app) || preset(app) != target) return@launch
+      if (generation != requestGeneration || targetRoute(app) != route || !enabled(app) ||
+        preset(app) != target || SeqRoute.outputKey(app, SeqRoute.isCar()) != key) return@launch
       if (result.getOrDefault(false)) {
         confirmedRoute = route
         confirmedPreset = target
+        confirmedOutputKey = key
         report("Native EQ verified preset=$target")
         SeqRuntime.log("Huawei native EQ verified preset=$target; Android mix can be bypassed")
       } else {
         confirmedRoute = null
         confirmedPreset = null
+        confirmedOutputKey = null
+        retryAfterMs = SystemClock.elapsedRealtime() + 30_000L
         report("Native EQ unavailable; Android fallback")
         SeqRuntime.log("Huawei native EQ readback unavailable; retaining Android DSP")
       }
@@ -156,10 +171,12 @@ object HuaweiNativeEq {
   }
 
   fun stop() {
+    generation++
     job?.cancel()
     runCatching { socketInUse?.close() }
     confirmedRoute = null
     confirmedPreset = null
+    confirmedOutputKey = null
   }
 
   @Suppress("MissingPermission")
