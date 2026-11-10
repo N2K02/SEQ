@@ -38,6 +38,15 @@ object SeqGlobalEffect {
     app = ctx
     val store = SettingsStore(ctx)
     val s = store.read()
+    if (HuaweiNativeEq.activeFor(ctx)) {
+      release("Huawei native EQ verified; Android effect bypassed")
+      SeqRuntime.status.value = SeqRuntime.status.value.copy(nativeActive = true,
+        lastEvent = "FreeBuds native EQ verified")
+      return
+    }
+    if (SeqRuntime.status.value.nativeActive) {
+      SeqRuntime.status.value = SeqRuntime.status.value.copy(nativeActive = false)
+    }
     if (!SessionPolicy.shouldProcessAllMedia(s)) {
       val reason = if (!s.enabled || !s.allMedia) null else "Pure bypass"
       release(reason)
