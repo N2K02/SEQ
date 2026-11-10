@@ -207,7 +207,7 @@ class MainActivity : ComponentActivity() {
                     if (adbState.connected) Text("ADB connected", color = accent,
                       style = MaterialTheme.typography.labelSmall)
                   }
-                  if (HuaweiNativeEq.targetRoute(this) != null || nativeEnabled) {
+                  if (HuaweiNativeEq.targetRoute(this@MainActivity) != null || nativeEnabled) {
                     AudioCard {
                       Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
