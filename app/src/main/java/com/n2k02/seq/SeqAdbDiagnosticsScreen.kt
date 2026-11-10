@@ -48,6 +48,7 @@ internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, 
     )
     val probe by adb.playerProbe.collectAsState()
     val effects by adb.effectProbe.collectAsState()
+    val audit by adb.exclusiveAudit.collectAsState()
     val sdkEffects by SeqEffectCapabilities.summary.collectAsState()
     val grant by adb.dumpGrant.collectAsState()
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -61,6 +62,9 @@ internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, 
         Text("System effects and audio policy", style = MaterialTheme.typography.titleSmall)
         OutlinedButton(onClick = adb::inspectAudioEffects) { Text("Inspect reverb, spatial and offload") }
         Text(effects, style = MaterialTheme.typography.bodySmall)
+        Text("Exclusive PCM feasibility", style = MaterialTheme.typography.titleSmall)
+        OutlinedButton(onClick = adb::auditExclusivePcm) { Text("Audit routing privileges") }
+        Text(audit, style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = { SeqEffectCapabilities.inspect() }) { Text("Inspect Android effect implementations") }
         OutlinedButton(onClick = { SeqEffectCapabilities.summary.value = SeqEffectCapabilities.probeAuxReverb() }) {
             Text("Check auxiliary concert-hall reverb")
