@@ -48,6 +48,11 @@ object AdbAccessPolicy {
     // Read-only capability hint; never activates or registers routing.
     const val ROUTING_PROBE =
         "id -u; dumpsys media.audio_policy | grep -E -i 'r_submix|remote.?submix|mix route|policy mix|policy mixes' | head -n 24"
+    /** Read-only vendor DSP/effect discovery. No policy mutations, PCM capture or media routing. */
+    const val EFFECTS_PROBE =
+        "dumpsys media.audio_flinger | grep -E -i '(effect chain|effect id|effect descriptor|effect name|reverb|spatial|virtualizer|offload|output thread|mixer thread)' | head -n 60"
+    const val POLICY_PROBE =
+        "dumpsys media.audio_policy | grep -E -i '(mix port|route|output|a2dp|offload|spatial|direct)' | head -n 60"
 }
 
 /** SEQ-specific audio diagnostics only; ADB connection, discovery, pairing,
@@ -94,6 +99,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         get() = app.checkSelfPermission(Manifest.permission.DUMP) == PackageManager.PERMISSION_GRANTED
     val dumpGrant = MutableStateFlow("DUMP permission not checked")
     val routingProbe = MutableStateFlow("Not checked · exclusive routing unverified")
+    val effectProbe = MutableStateFlow("Not checked · vendor effects unknown")
     val state = MutableStateFlow(AdbDiagnosticState(
         message = if (preferences.previouslyAuthorized) "Previously authorized • idle" else "ADB setup required",
         verifiedAt = preferences.lastVerifiedAt,
@@ -261,6 +267,40 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
                 "Routing probe failed: " + failure.javaClass.simpleName
             }
             routingProbe.value = result
+        }
+    }
+
+    /** Capture only limited diagnostics from the already verified ADB shell.
+     * Do not treat an effect name in a dump as proof of usable session-0 control.
+     */
+    fun inspectAudioEffects() {
+        if (shutDown) return
+        effectProbe.value = "Inspecting audio effects and policy…"
+        scope.launch {
+            val result = try {
+                if (!sharedCore.state.value.connected) {
+                    "ADB disconnected · no privileged effect discovery"
+                } else {
+                    val effects = sharedCore.execVerified(AdbAccessPolicy.EFFECTS_PROBE, 8_000)
+                    val policy = sharedCore.execVerified(AdbAccessPolicy.POLICY_PROBE, 8_000)
+                    val lines = effects.lineSequence().filter { it.isNotBlank() }.take(60).toList()
+                    val routes = policy.lineSequence().filter { it.isNotBlank() }.take(60).toList()
+                    val reverb = lines.any { it.contains("reverb", true) }
+                    val spatial = lines.any { it.contains("spatial", true) || it.contains("virtualizer", true) }
+                    val offload = (lines + routes).any { it.contains("offload", true) }
+                    val bluetooth = routes.any { it.contains("a2dp", true) || it.contains("bluetooth", true) }
+                    SeqRuntime.log("ADB effects lines=${lines.size} policyLines=${routes.size} reverbHint=$reverb spatialHint=$spatial offloadHint=$offload bluetoothHint=$bluetooth")
+                    "AudioFlinger effects: ${lines.size} matching lines · reverb hint=$reverb · spatial hint=$spatial\n" +
+                        "Audio policy: ${routes.size} matching lines · Bluetooth hint=$bluetooth · offload hint=$offload\n" +
+                        "Discovery only: no PCM access or exclusive effect route confirmed"
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("ADB effect probe failed: " + failure.javaClass.simpleName)
+                "Effect discovery unavailable: " + failure.javaClass.simpleName
+            }
+            effectProbe.value = result
         }
     }
 
