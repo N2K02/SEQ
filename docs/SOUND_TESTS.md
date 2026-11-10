@@ -1,7 +1,7 @@
 # Sound quality and efficiency validation
 
-Experimental improvements: 10-band default interface; optional 31-band precision controls;
-31-band DynamicsProcessing internally where supported; smooth 200 ms EQ updates on
+Experimental improvements: 10-band default interface; optional 10-band precision controls;
+10-band DynamicsProcessing internally where supported; smooth 200 ms EQ updates on
 platform and OEM fallbacks; conservative preamp headroom; controlled bass; four
 tone modes (Natural, Smooth, Deep Bass, Immersive). Immersive is a tonal
 character, not artificial phase widening.
