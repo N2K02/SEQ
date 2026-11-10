@@ -46,6 +46,7 @@ internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, 
         },
     )
     val probe by adb.playerProbe.collectAsState()
+    val effects by adb.effectProbe.collectAsState()
     val grant by adb.dumpGrant.collectAsState()
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         Text("Advanced player tracking", style = MaterialTheme.typography.titleSmall)
@@ -55,5 +56,8 @@ internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, 
         Text(probe, style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = adb::grantDumpPermission) { Text("Request DUMP via ADB") }
         Text(grant, style = MaterialTheme.typography.bodySmall)
+        Text("System effects and audio policy", style = MaterialTheme.typography.titleSmall)
+        OutlinedButton(onClick = adb::inspectAudioEffects) { Text("Inspect reverb, spatial and offload") }
+        Text(effects, style = MaterialTheme.typography.bodySmall)
     }
 }
