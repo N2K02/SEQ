@@ -13,7 +13,6 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
-import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -63,9 +62,7 @@ class SeqPcmCaptureProbeService : Service() {
       stopSelf()
       return START_NOT_STICKY
     }
-    val result: Intent? = if (Build.VERSION.SDK_INT >= 33)
-      intent.getParcelableExtra(EXTRA_CAPTURE_DATA, Intent::class.java)
-    else @Suppress("DEPRECATION") intent.getParcelableExtra(EXTRA_CAPTURE_DATA)
+    val result: Intent? = captureConsent(intent)
     if (result == null) {
       status.value = "MediaProjection consent required"
       stopSelf()
@@ -127,6 +124,12 @@ class SeqPcmCaptureProbeService : Service() {
     }
     return START_NOT_STICKY
   }
+
+  @Suppress("DEPRECATION")
+  private fun captureConsent(intent: Intent): Intent? =
+    if (Build.VERSION.SDK_INT >= 33)
+      intent.getParcelableExtra(EXTRA_CAPTURE_DATA, Intent::class.java)
+    else intent.getParcelableExtra(EXTRA_CAPTURE_DATA)
 
   private fun sampleLoop(record: AudioRecord) {
     Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
