@@ -42,6 +42,22 @@ object SystemEqCurveBuilder {
     val headroom = maxOf(boost, preamp).coerceIn(0.0, 24.0)
     return SystemEqCurve(round2(-headroom) + 0f, bands)
   }
+  /** Approximate a high-resolution curve with fewer Android hardware bands.
+   * Preserve the original input attenuation; never raise the combined peak.
+   */
+  fun forBandCount(curve: SystemEqCurve, count: Int): SystemEqCurve {
+    require(count in 2..BAND_COUNT)
+    if (curve.bands.size == count) return curve
+    val bands = (0 until count).map { i ->
+      val high = cutoffHz(i, count).toFloat()
+      val low = if (i == 0) LOW_HZ else cutoffHz(i - 1, count)
+      val middle = sqrt(low * high.toDouble()).toFloat()
+      SystemEqBand(high, curve.levelAt(middle) - curve.inputGainDb)
+    }
+    val peak = bands.maxOf { it.gainDb }.coerceAtLeast(0f)
+    return SystemEqCurve(minOf(curve.inputGainDb, -peak), bands)
+  }
+
   const val MANUAL_LIMIT_DB = 6f
 
   const val COMPACT_BAND_COUNT = 10
