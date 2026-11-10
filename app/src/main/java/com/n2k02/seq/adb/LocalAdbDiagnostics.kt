@@ -293,7 +293,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         leavePage()
         observer?.cancel()
         observer = null
-        if (active === this) active = null
+        if (active === this@LocalAdbDiagnostics) active = null
         scope.cancel()
     }
 
@@ -308,7 +308,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
             SharedAdbHostAdapter.shutdown()
             observer?.cancel()
             observer = null
-            if (active === this) active = null
+            if (active === this@LocalAdbDiagnostics) active = null
             scope.cancel()
         }
     }
