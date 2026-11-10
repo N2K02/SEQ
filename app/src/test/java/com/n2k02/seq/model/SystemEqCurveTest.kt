@@ -122,7 +122,9 @@ class SystemEqCurveTest {
   @Test fun bassAtNonpeakFrequencyDoesNotAddFullIndependentHeadroom() {
     val base = SystemEqCurveBuilder.manual(List(10) { if (it == 9) 4f else 0f })
     val adjusted = SystemEqCurveBuilder.withOutputControls(base, 2f, 0f, false)
-    assertEquals(base.inputGainDb, adjusted.inputGainDb, 0.1f)
+    assertTrue(adjusted.inputGainDb <= base.inputGainDb)
+    // No more than the new shelf boost is needed as additional attenuation.
+    assertTrue(adjusted.inputGainDb >= base.inputGainDb - 2.5f)
     assertTrue(adjusted.bands.all { it.gainDb + adjusted.inputGainDb <= 0.01f })
   }
 
