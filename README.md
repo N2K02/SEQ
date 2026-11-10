@@ -5,7 +5,7 @@ SEQ is a battery-conscious experimental sound engine, with a minimal neutral Mat
 **Experimental PR:** https://github.com/N2K02/SEQ/pull/1
 
 ## What SEQ does
-- **SEQ Auto** (default) tunes media routed through a compatible Android output mix. It uses 31-band DynamicsProcessing with headroom and an optional limiter. If the platform rejects that backend, SEQ tries the OEM EQ with cut-only band levels. **Pure** bypasses SEQ processing.
+- **SEQ Auto** (default) tunes media routed through a compatible Android output mix. It uses 10-band DynamicsProcessing with headroom and an optional limiter. If the platform rejects that backend, SEQ tries the OEM EQ with cut-only band levels. **Pure** bypasses SEQ processing.
 - On Android 13 and later, SEQ uses Android's predicted media route when available. Wired headphones, Bluetooth, phone speaker and car mode each have their own tuning.
 - The Home screen reports whether Android enabled the effect. Actual processing depends on the device, player and route. Verify wired and wireless Android Auto on a head unit or DHU, including apps that use offload or direct playback.
 
