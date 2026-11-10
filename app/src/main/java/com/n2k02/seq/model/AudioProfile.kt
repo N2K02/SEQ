@@ -32,6 +32,8 @@ data class EngineSettings(
   val loudness: Boolean = true,
   val manualBands: List<Float>? = null,
   val bassBoost: Float = 0f,
+  val spatialMode: SpatialMode = SpatialMode.OFF,
+  val spatialIntensity: Float = 0.6f,
   val preampDb: Float = 0f,
   val soundMode: SoundMode = SoundMode.NATURAL,
   val compressorEnabled: Boolean = false,
