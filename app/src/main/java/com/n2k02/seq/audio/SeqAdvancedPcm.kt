@@ -49,8 +49,13 @@ class SeqStereoConvolver(private val impulse: FloatArray) {
 
   fun reset() { left.fill(0f); right.fill(0f); cursor = 0 }
 
-  /** Out buffers are owned by caller; no per-block allocation. */
-  fun process(leftIn: Float, rightIn: Float): Pair<Float, Float> {
+  var outLeft = 0f
+    private set
+  var outRight = 0f
+    private set
+
+  /** Primitive outputs avoid allocating a Pair for every PCM frame. */
+  fun process(leftIn: Float, rightIn: Float) {
     left[cursor] = leftIn
     right[cursor] = rightIn
     var sumL = 0f
@@ -64,7 +69,8 @@ class SeqStereoConvolver(private val impulse: FloatArray) {
     }
     cursor++
     if (cursor == impulse.size) cursor = 0
-    return sumL to sumR
+    outLeft = sumL
+    outRight = sumR
   }
 }
 
@@ -128,9 +134,9 @@ class SeqAdvancedPcm(
         r *= attenuation
       }
       if (settings.convolutionWet > 0f && convolver != null) {
-        val (wetL, wetR) = convolver.process(l, r)
-        l = l * (1f - settings.convolutionWet) + wetL * settings.convolutionWet
-        r = r * (1f - settings.convolutionWet) + wetR * settings.convolutionWet
+        convolver.process(l, r)
+        l = l * (1f - settings.convolutionWet) + convolver.outLeft * settings.convolutionWet
+        r = r * (1f - settings.convolutionWet) + convolver.outRight * settings.convolutionWet
       }
       stereo[p] = l.coerceIn(-1f, 1f)
       stereo[p + 1] = r.coerceIn(-1f, 1f)
