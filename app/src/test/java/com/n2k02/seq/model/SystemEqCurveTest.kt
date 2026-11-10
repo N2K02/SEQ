@@ -6,7 +6,7 @@ import org.junit.Test
 class SystemEqCurveTest {
   @Test fun fallbackBandCountsPreserveSafetyAndCoverage() {
     val original = SystemEqCurveBuilder.build(Tone(bass = 5f, treble = 3f), null)
-    for (count in listOf(31, 10, 5)) {
+    for (count in listOf(10, 5)) {
       val reduced = SystemEqCurveBuilder.forBandCount(original, count)
       assertEquals(count, reduced.bands.size)
       assertEquals(20000f, reduced.bands.last().cutoffHz, 1f)
@@ -24,7 +24,7 @@ class SystemEqCurveTest {
     val c = SystemEqCurveBuilder.build(Tone(), null)
     c.bands.zipWithNext().forEach { (a, b) -> assertTrue(b.cutoffHz > a.cutoffHz) }
     assertEquals(20000f, c.bands.last().cutoffHz, 1f)
-    assertTrue(c.bands.first().cutoffHz < 30f)
+    assertTrue(c.bands.first().cutoffHz < 45f)
   }
   @Test fun boostIsCompensatedByInputGainSoNoBandExceedsZero() {
     val c = SystemEqCurveBuilder.build(Tone(bass = 6f, treble = 4f), null)
@@ -41,7 +41,10 @@ class SystemEqCurveTest {
     val tone = Tone(mid = 5f)
     val c = SystemEqCurveBuilder.build(tone, null)
     val band = c.bands.first { it.cutoffHz >= 1100f }
-    assertEquals(EqResponse.totalDb(1100.0, tone, null), band.gainDb.toDouble(), 0.6)
+    val i = c.bands.indexOf(band)
+    val lower = if (i == 0) 20.0 else c.bands[i - 1].cutoffHz.toDouble()
+    val centre = kotlin.math.sqrt(lower * band.cutoffHz.toDouble())
+    assertEquals(EqResponse.totalDb(centre, tone, null), band.gainDb.toDouble(), 0.02)
   }
   @Test fun oemFallbackUsesFullHeadroomWithoutLimiter() {
     val levels = SystemEqCurveBuilder.oemLevels(Tone(bass = 6f), listOf(60f, 1000f, 8000f),
@@ -76,18 +79,18 @@ class SystemEqCurveTest {
     val gains = List(10) { it - 4f }
     assertEquals(gains, SystemEqCurveBuilder.parseManual(gains.joinToString(",")))
     val curve = SystemEqCurveBuilder.manual(gains)
-    assertEquals(31, curve.bands.size)
+    assertEquals(10, curve.bands.size)
     assertEquals(-5f, curve.inputGainDb, 0f)
     assertEquals(-4f, curve.bands.first().gainDb, 0f)
     assertEquals(5f, curve.bands.last().gainDb, 0f)
     assertTrue(curve.bands.zipWithNext().all { (a, b) -> a.gainDb <= b.gainDb })
   }
 
-  @Test fun convertingBetweenLayoutsPreservesAFlatPreset() {
-    val gains = List(31) { 2.5f }
-    val compact = SystemEqCurveBuilder.resample(gains, 10)
+  @Test fun legacy31BandSavedPresetsMigrateToTenBands() {
+    val legacy = List(31) { 2.5f }
+    val compact = SystemEqCurveBuilder.parseManual(legacy.joinToString(","))
     assertEquals(List(10) { 2.5f }, compact)
-    assertEquals(gains, SystemEqCurveBuilder.resample(compact, 31))
+    assertEquals(10, SystemEqCurveBuilder.manual(checkNotNull(compact)).bands.size)
   }
 
   @Test fun invalidStoredManualCurvesFallBackToAuto() {
