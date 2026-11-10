@@ -18,6 +18,8 @@ class SettingsStore(context: Context) {
       loudness = prefs.getBoolean("loudness", true),
       manualBands = SystemEqCurveBuilder.parseManual(prefs.getString("manual_bands", null)),
       bassBoost = readLevel("bass_boost", 0f, 0f..1f),
+      spatialMode = runCatching { SpatialMode.valueOf(prefs.getString("spatial_mode", "OFF") ?: "OFF") }.getOrDefault(SpatialMode.OFF),
+      spatialIntensity = readLevel("spatial_intensity", 0.6f, 0f..1f),
       preampDb = readLevel("preamp_db", 0f, -12f..6f),
       soundMode = runCatching { SoundMode.valueOf(prefs.getString("sound_mode", SoundMode.NATURAL.name) ?: "") }.getOrDefault(SoundMode.NATURAL),
       compressorEnabled = prefs.getBoolean("compressor_enabled", false),
@@ -32,7 +34,10 @@ class SettingsStore(context: Context) {
       .putBoolean("adaptive", s.adaptive)
       .putBoolean("peak_guard",s.peakGuard)
       .putString("manual_bands", s.manualBands?.joinToString(","))
-      .putFloat("bass_boost", s.bassBoost).putFloat("preamp_db", s.preampDb)
+      .putFloat("bass_boost", s.bassBoost)
+      .putString("spatial_mode", s.spatialMode.name)
+      .putFloat("spatial_intensity", s.spatialIntensity)
+      .putFloat("preamp_db", s.preampDb)
       .putString("sound_mode", s.soundMode.name)
       .putBoolean("compressor_enabled", s.compressorEnabled)
       .putFloat("compressor_ratio", s.compressorRatio)
