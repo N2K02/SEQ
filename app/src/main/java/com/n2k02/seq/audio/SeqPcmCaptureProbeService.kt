@@ -156,7 +156,8 @@ class SeqPcmCaptureProbeService : Service() {
         // Low frequency, bounded telemetry; no samples leave this service.
         if (blocks % 24 == 0) {
           val rms = sqrt(sum / count)
-          val message = "PCM detected · rate=48 kHz · peak=${"%.3f".format(peak)}" +
+          val detection = if (peak > .001f) "PCM signal detected" else "PCM capture open · silence"
+          val message = "$detection · rate=48 kHz · peak=${"%.3f".format(peak)}" +
             " · RMS=${"%.3f".format(rms)} · frames=$samplesSeen" +
             " · original playback NOT suppressed"
           status.value = message
