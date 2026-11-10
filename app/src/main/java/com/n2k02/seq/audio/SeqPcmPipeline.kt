@@ -12,7 +12,7 @@ class SeqPcmRingBuffer(
   val capacityFrames: Int = 8192
 ) {
   init {
-    require(capacityFrames in 256..65536 && capacityFrames and (capacityFrames - 1) == 0)
+    require(capacityFrames in 256..65536 && (capacityFrames and (capacityFrames - 1)) == 0)
   }
   private val samples = FloatArray(capacityFrames * 2)
   private val mask = capacityFrames - 1
