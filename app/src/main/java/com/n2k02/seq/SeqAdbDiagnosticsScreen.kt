@@ -1,6 +1,14 @@
 package com.n2k02.seq
 
+import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import com.n2k02.seq.audio.SeqPcmCaptureProbeService
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.layout.Column
@@ -49,6 +57,19 @@ internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, 
     val probe by adb.playerProbe.collectAsState()
     val effects by adb.effectProbe.collectAsState()
     val audit by adb.exclusiveAudit.collectAsState()
+    val pcmProbe by SeqPcmCaptureProbeService.status.collectAsState()
+    val projectionManager = remember(context) { context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager }
+    val captureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val service = Intent(context, SeqPcmCaptureProbeService::class.java)
+                .setAction(SeqPcmCaptureProbeService.START)
+                .putExtra(SeqPcmCaptureProbeService.EXTRA_CAPTURE_DATA, result.data)
+            ContextCompat.startForegroundService(context, service)
+        }
+    }
+    val audioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) captureLauncher.launch(projectionManager.createScreenCaptureIntent())
+    }
     val sdkEffects by SeqEffectCapabilities.summary.collectAsState()
     val grant by adb.dumpGrant.collectAsState()
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -65,6 +86,19 @@ internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, 
         Text("Exclusive PCM feasibility", style = MaterialTheme.typography.titleSmall)
         OutlinedButton(onClick = adb::auditExclusivePcm) { Text("Audit routing privileges") }
         Text(audit, style = MaterialTheme.typography.bodySmall)
+        Text("Third-party PCM compatibility", style = MaterialTheme.typography.titleSmall)
+        Text("User-approved capture test only; audio is not replayed or recorded to files.",
+            style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED) {
+                captureLauncher.launch(projectionManager.createScreenCaptureIntent())
+            } else audioPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }) { Text("Test third-party PCM capture") }
+        OutlinedButton(onClick = {
+            context.stopService(Intent(context, SeqPcmCaptureProbeService::class.java))
+        }) { Text("Stop PCM test") }
+        Text(pcmProbe, style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = { SeqEffectCapabilities.inspect() }) { Text("Inspect Android effect implementations") }
         OutlinedButton(onClick = { SeqEffectCapabilities.summary.value = SeqEffectCapabilities.probeAuxReverb() }) {
             Text("Check auxiliary concert-hall reverb")
