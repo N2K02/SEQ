@@ -186,6 +186,8 @@ class MainActivity : ComponentActivity() {
                         Text("Sound", style = MaterialTheme.typography.titleLarge)
                         Text(when {
                           !settings.enabled -> "Off"
+                          status.nativeActive -> "FreeBuds hardware EQ confirmed"
+                          status.globalActive && activeRoute == RouteKind.BLUETOOTH -> "Android EQ attached • Bluetooth path unverified"
                           status.processing -> "Sound enhancement active"
                           else -> "On • " + status.lastEvent
                         }, color = if (status.processing) accent else quiet,
