@@ -48,6 +48,21 @@ object SeqPlaybackMonitor {
   private val main = Handler(Looper.getMainLooper())
   private const val VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
   private const val EXTRA_STREAM = "android.media.EXTRA_VOLUME_STREAM_TYPE"
+  private var lastOutputKey: Pair<Boolean, List<Int>>? = null
+  private const val ROUTE_SETTLE_MS = 250L
+  private const val PLAYBACK_SETTLE_MS = 120L
+  private val routeSync = Runnable { resync() }
+  private val playbackSync = Runnable { resync() }
+  private fun scheduleRouteSync() {
+    val ctx = app ?: return
+    val key = SeqRoute.outputKey(ctx, carMode.value)
+    if (key != lastOutputKey) {
+      SeqRuntime.log("Output device changed route=${SeqRoute.describe(ctx, carMode.value)}")
+      lastOutputKey = key
+    }
+    main.removeCallbacks(routeSync)
+    main.postDelayed(routeSync, ROUTE_SETTLE_MS)
+  }
   private val volumeSync = Runnable {
     resync()
   }
@@ -57,8 +72,8 @@ object SeqPlaybackMonitor {
       update(configs)
   }
   private val devices = object : AudioDeviceCallback() {
-    override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) = resync()
-    override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) = resync()
+    override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) = scheduleRouteSync()
+    override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) = scheduleRouteSync()
   }
   private val carReceiver = object : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -82,7 +97,7 @@ object SeqPlaybackMonitor {
       carMode.value = car
       SeqRuntime.log(if (car) "Car profile selected" else "Car profile cleared")
     }
-    resync()
+    scheduleRouteSync()
     if (car) startEngine(context)
   }
 
@@ -117,7 +132,10 @@ object SeqPlaybackMonitor {
   private fun update(configs: List<AudioPlaybackConfiguration>) {
     val active = PlaybackPolicy.mediaActive(configs.map { it.audioAttributes.usage })
     if (mediaActive.value == active) {
-      if (active) resync()
+      if (active) {
+        main.removeCallbacks(playbackSync)
+        main.postDelayed(playbackSync, PLAYBACK_SETTLE_MS)
+      }
       return
     }
     mediaActive.value = active
@@ -142,6 +160,9 @@ object SeqPlaybackMonitor {
     carMode.value = false
     mediaActive.value = false
     main.removeCallbacks(volumeSync)
+    main.removeCallbacks(playbackSync)
+    main.removeCallbacks(routeSync)
+    lastOutputKey = null
     val audio = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     runCatching { audio.unregisterAudioPlaybackCallback(playback) }
     runCatching { audio.unregisterAudioDeviceCallback(devices) }
