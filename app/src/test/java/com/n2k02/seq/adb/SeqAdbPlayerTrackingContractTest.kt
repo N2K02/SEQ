@@ -33,7 +33,7 @@ class SeqAdbPlayerTrackingContractTest {
     assertTrue(adb.contains("pm grant com.n2k02.seq android.permission.DUMP"))
     assertTrue(adb.contains("if (dumpPermissionGranted)"))
     assertTrue(adb.contains("checkSelfPermission(Manifest.permission.DUMP)"))
-    assertTrue(adb.contains("if (active === this) active = null"))
+    assertTrue(adb.contains("if (active === this@LocalAdbDiagnostics) active = null"))
     assertFalse(monitor.contains("grantDumpPermission"))
     assertFalse(monitor.contains("PLAYER_PROBE"))
     val listener = source("java/com/n2k02/seq/audio/SeqMediaSessionListener.kt")
