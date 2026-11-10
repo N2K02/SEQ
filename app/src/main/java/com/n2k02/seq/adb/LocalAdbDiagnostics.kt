@@ -1,6 +1,8 @@
 package com.n2k02.seq.adb
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.SystemClock
 import com.n2k02.seq.audio.SeqRuntime
 import dev.n2k02.adb.core.AdbCore
@@ -88,6 +90,8 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
     }
 
     val playerProbe = MutableStateFlow("Player diagnostics not checked")
+    val dumpPermissionGranted: Boolean
+        get() = app.checkSelfPermission(Manifest.permission.DUMP) == PackageManager.PERMISSION_GRANTED
     val dumpGrant = MutableStateFlow("DUMP permission not checked")
     val routingProbe = MutableStateFlow("Not checked · exclusive routing unverified")
     val state = MutableStateFlow(AdbDiagnosticState(
@@ -169,10 +173,12 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
                 } else {
                     val output = sharedCore.execVerified(
                         "pm grant com.n2k02.seq android.permission.DUMP", 8_000)
-                    if (output.contains("Exception", true) || output.contains("denied", true)) {
+                    if (dumpPermissionGranted) {
+                        "DUMP permission granted · diagnostics only"
+                    } else if (output.contains("Exception", true) || output.contains("denied", true)) {
                         "DUMP permission unavailable on this Android build"
                     } else {
-                        "ADB grant requested · verify in Android permissions"
+                        "DUMP permission not granted · Android restricted this permission"
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -201,9 +207,10 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
                         .filter(String::isNotEmpty).take(35).toList()
                     val offload = sample.any { it.contains("offload", true) }
                     val bluetooth = sample.any { it.contains("bluetooth", true) || it.contains("a2dp", true) }
-                    val tracks = sample.count { it.contains("track", true) || it.contains("session", true) }
-                    SeqRuntime.log("ADB player probe tracks=$tracks offloadHint=$offload bluetoothHint=$bluetooth; PCM path unknown")
-                    "ADB audio snapshot · tracks=$tracks · offload hint=$offload · Bluetooth hint=$bluetooth · effect path unverified"
+                    val matchingLines = sample.count { it.contains("track", true) || it.contains("session", true) }
+                    val permission = if (dumpPermissionGranted) "DUMP granted" else "DUMP not granted"
+                    SeqRuntime.log("ADB audio probe lines=$matchingLines offloadHint=$offload bluetoothHint=$bluetooth; PCM path unknown")
+                    "ADB snapshot · $permission · track/session lines=$matchingLines · offload hint=$offload · Bluetooth hint=$bluetooth · effect path unverified"
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -286,6 +293,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         leavePage()
         observer?.cancel()
         observer = null
+        if (active === this) active = null
         scope.cancel()
     }
 
@@ -300,6 +308,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
             SharedAdbHostAdapter.shutdown()
             observer?.cancel()
             observer = null
+            if (active === this) active = null
             scope.cancel()
         }
     }
