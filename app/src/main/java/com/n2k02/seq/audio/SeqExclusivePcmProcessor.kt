@@ -10,9 +10,12 @@ import com.n2k02.seq.model.SpatialMode
 class SeqExclusivePcmProcessor(
   sampleRate: Int,
   private val mode: SpatialMode,
-  capacityFrames: Int = 4096
+  capacityFrames: Int = 4096,
+  advancedConfig: SeqAdvancedPcmConfig = SeqAdvancedPcmConfig(),
+  impulse: FloatArray? = null
 ) {
   private val queue = SeqPcmRingBuffer(capacityFrames)
+  private val advanced = SeqAdvancedPcm(sampleRate, advancedConfig, impulse)
   private val hall = SeqHallPcm(sampleRate)
   private val orbit = SeqOrbitPcm(sampleRate)
   private val render = FloatArray(capacityFrames * 2)
@@ -49,6 +52,7 @@ class SeqExclusivePcmProcessor(
       destination.fill(0f)
       return 0
     }
+    advanced.process(render, 0, count)
     when (mode) {
       SpatialMode.HALL -> hall.process(render, 0, count)
       SpatialMode.ORBIT_8D -> orbit.process(render, 0, count)
@@ -59,6 +63,10 @@ class SeqExclusivePcmProcessor(
     return count
   }
 
+  fun updateAdvanced(config: SeqAdvancedPcmConfig) {
+    if (!closed) advanced.update(config)
+  }
+
   fun close() {
     if (closed) return
     closed = true
@@ -66,6 +74,7 @@ class SeqExclusivePcmProcessor(
     queue.stop()
     hall.reset()
     orbit.reset()
+    advanced.reset()
     render.fill(0f)
   }
 }
