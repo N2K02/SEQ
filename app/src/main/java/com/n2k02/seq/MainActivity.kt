@@ -162,6 +162,7 @@ class MainActivity : ComponentActivity() {
                       update(settings.copy(enabled = false))
                       SeqPlaybackMonitor.stop()
                       HuaweiNativeEq.stop()
+                      stopService(Intent(this@MainActivity, com.n2k02.seq.audio.SeqPcmCaptureProbeService::class.java))
                       SeqUpdater.controller.cancel()
                       lifecycleScope.launch {
                         adb.shutdownAndAwait()
