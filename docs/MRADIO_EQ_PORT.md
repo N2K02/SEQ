@@ -48,3 +48,44 @@ Safety conditions before enabling experimental PCM on any route:
 3. Sample rate/channel format are validated, and no duplicate sound, feedback or echo.
 4. Route loss/shutdown cancels DSP immediately; all effects release correctly.
 5. Clipping, silence, CPU, latency and reconnect tests pass on a real device.
+
+
+## RootlessBrennanDSP-inspired extended DSP prototype
+
+Reference: https://github.com/bshea-1/RootlessBrennanDSP (GPLv3). The Kotlin
+processor here was independently implemented; no upstream C++/JNI implementation
+or build sources were copied. Before integrating upstream files, review GPLv3
+compatibility and maintain the required source and notices.
+
+The reference offers AutoEQ, parametric EQ, convolution, dynamic bass, tube
+modeling, stereo widening, multiband companding, DDC, and LiveProg scripting.
+SEQ already has graphic EQ, parametric headphone-correction filters, bass, and
+platform compression. This PR adds **owned/exclusive-PCM implementations** for:
+
+- Stereo widening and tube-style saturation.
+- Low-frequency enhancement and envelope-compression with bounded output.
+- Stereo FIR convolution from a caller-supplied, validated float impulse.
+- Concert Hall and 8D Orbit processors, all chained through
+  `SeqExclusivePcmProcessor` and a bounded producer/consumer PCM ring buffer.
+- Explicit `SeqExclusiveRouteEvidence` safety requirements; all seven
+  conditions must be met before the processor can return usable audio.
+- Read-only ADB audit of the SEQ package's routing permission hints, shell UID
+  and remote-submix availability. A matching dump line is NOT a registered
+  exclusive policy.
+
+**Not yet integrated in live third-party audio:** The source app retains PCM
+ownership. RootlessBrennanDSP uses MediaProjection/AudioPlaybackCapture with
+AudioRecord → processing → AudioTrack; its own documentation warns of duplicate
+sound on some hardware-accelerated paths. The present SEQ PR deliberately does
+not start that capture-and-replay path or change another app's capture policy.
+The reference's Shizuku setAllowedCapturePolicy workaround is not copied.
+
+**Not yet ported:** Native libjamesdsp, thousands of prepackaged AutoEQ
+profiles, multiband compander, DDC databases, and LiveProg scripting. These
+would need separate integrations, source/license review, and verification.
+SEQ's existing correction and compression cover parts of that functionality,
+not feature-identical replacements.
+
+The new DSP components are CPU-only prototypes and cannot be described as
+end-to-end low-latency until measured on actual device playback. No user-facing
+switch should suggest these PCM modes alter third-party audio.
