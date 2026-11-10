@@ -36,10 +36,10 @@ object MRadioPresets {
   )
   val names: List<String> get() = sources.keys.toList()
   fun bands(name: String): List<Float>? = sources[name]?.let(::resample)
-  fun matching(bands: List<Float>?): String? =
-    if (bands == null) null else names.firstOrNull { name ->
+  fun matching(selected: List<Float>?): String? =
+    if (selected == null) null else names.firstOrNull { name ->
       val preset = bands(name) ?: return@firstOrNull false
-      preset.size == bands.size && preset.indices.all { i -> kotlin.math.abs(preset[i] - bands[i]) < 0.01f }
+      preset.size == selected.size && preset.indices.all { i -> kotlin.math.abs(preset[i] - selected[i]) < 0.01f }
     }
 
   private fun resample(source: List<Float>): List<Float> {
