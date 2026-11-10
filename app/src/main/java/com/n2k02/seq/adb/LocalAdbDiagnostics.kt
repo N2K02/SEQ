@@ -1,6 +1,7 @@
 package com.n2k02.seq.adb
 
 import android.content.Context
+import android.os.SystemClock
 import com.n2k02.seq.audio.SeqRuntime
 import dev.n2k02.adb.core.AdbCore
 import dev.n2k02.adb.core.AdbOption
@@ -61,6 +62,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
     val sharedCore: AdbCore = SharedAdbHostAdapter.core(app)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var observer: Job? = null
+    @Volatile private var lastPlayerProbeAt = 0L
     @Volatile private var visible = false
     @Volatile private var shutDown = false
 
@@ -211,6 +213,15 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
             }
             playerProbe.value = result
         }
+    }
+
+    /** Automatic probe only when media-player identity changes; bounded to 30 seconds. */
+    @Synchronized fun inspectPlayerChange() {
+        if (shutDown || !sharedCore.state.value.connected) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastPlayerProbeAt < 30_000L) return
+        lastPlayerProbeAt = now
+        inspectPlayers()
     }
 
     /** Explicit, read-only routing probe; never starts capture or redirects audio. */
