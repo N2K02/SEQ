@@ -130,7 +130,7 @@ object SeqPlaybackMonitor {
   }
 
   private fun update(configs: List<AudioPlaybackConfiguration>) {
-    val active = PlaybackPolicy.mediaActive(configs.filter { it.playerState == AudioPlaybackConfiguration.PLAYER_STATE_STARTED }.map { it.audioAttributes.usage })
+    val active = PlaybackPolicy.mediaActive(configs.map { it.audioAttributes.usage })
     if (mediaActive.value == active) {
       if (active) {
         main.removeCallbacks(playbackSync)
