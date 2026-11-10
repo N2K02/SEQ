@@ -42,6 +42,7 @@ import com.n2k02.seq.audio.SeqPlaybackMonitor
 import com.n2k02.seq.audio.SeqAdaptiveAnalyzer
 import com.n2k02.seq.audio.SeqRuntime
 import com.n2k02.seq.audio.SeqRoute
+import com.n2k02.seq.audio.HuaweiNativeEq
 import com.n2k02.seq.model.*
 import com.n2k02.seq.adb.LocalAdbDiagnostics
 import com.n2k02.seq.adb.SeqAdbRecoveryWorker
@@ -92,6 +93,9 @@ class MainActivity : ComponentActivity() {
       var page by rememberSaveable { mutableStateOf(Page.HOME) }
       var resetRevision by remember { mutableIntStateOf(0) }
       var routeRevision by remember { mutableIntStateOf(0) }
+      var nativeEnabled by remember { mutableStateOf(HuaweiNativeEq.enabled(this)) }
+      var nativePreset by remember { mutableIntStateOf(HuaweiNativeEq.preset(this)) }
+      val nativeStatus by HuaweiNativeEq.status.collectAsState()
       BackHandler(enabled = page != Page.HOME && page != Page.SETTINGS) {
         page = Page.SETTINGS
       }
@@ -157,6 +161,7 @@ class MainActivity : ComponentActivity() {
                     NavigationBarItem(selected = false, onClick = {
                       update(settings.copy(enabled = false))
                       SeqPlaybackMonitor.stop()
+                      HuaweiNativeEq.stop()
                       SeqUpdater.controller.cancel()
                       lifecycleScope.launch {
                         adb.shutdownAndAwait()
@@ -201,6 +206,39 @@ class MainActivity : ComponentActivity() {
                       style = MaterialTheme.typography.bodySmall, color = quiet)
                     if (adbState.connected) Text("ADB connected", color = accent,
                       style = MaterialTheme.typography.labelSmall)
+                  }
+                  if (HuaweiNativeEq.targetRoute(this) != null || nativeEnabled) {
+                    AudioCard {
+                      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                          Text("FreeBuds 5 hardware EQ", style = MaterialTheme.typography.titleMedium)
+                          Text("Experimental • selects earbuds presets, not SEQ's custom bands",
+                            style = MaterialTheme.typography.bodySmall, color = quiet)
+                        }
+                        Switch(checked = nativeEnabled, enabled = settings.enabled,
+                          onCheckedChange = { on ->
+                            nativeEnabled = on
+                            if (on && Build.VERSION.SDK_INT >= 31 && !HuaweiNativeEq.permitted(this@MainActivity)) {
+                              requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 110)
+                            }
+                            HuaweiNativeEq.configure(this@MainActivity, on, nativePreset)
+                          })
+                      }
+                      if (nativeEnabled) {
+                        Row(Modifier.horizontalScroll(rememberScrollState()),
+                          horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                          listOf(1 to "Default", 2 to "Bass", 3 to "Treble", 9 to "Voices").forEach { (code, label) ->
+                            FilterChip(selected = nativePreset == code, onClick = {
+                              nativePreset = code
+                              HuaweiNativeEq.configure(this@MainActivity, true, code)
+                            }, label = { Text(label) })
+                          }
+                        }
+                        Text(nativeStatus, style = MaterialTheme.typography.bodySmall, color = quiet)
+                        Text("Only uses hardware EQ after device readback. If unavailable, Android DSP remains active.",
+                          style = MaterialTheme.typography.bodySmall, color = quiet)
+                      }
+                    }
                   }
                   AudioCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -287,6 +325,7 @@ class MainActivity : ComponentActivity() {
     super.onResume()
     permissionRevision++ // Refresh live Android grants after returning from system Settings.
     SeqAdaptiveAnalyzer.sync(this, SeqPlaybackMonitor.mediaActive.value)
+    HuaweiNativeEq.sync(this)
     SeqGlobalEffect.sync(this)
     adb.resumed()
     SeqUpdater.onResume(this)
