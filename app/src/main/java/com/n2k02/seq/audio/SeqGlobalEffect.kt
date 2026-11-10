@@ -2,6 +2,7 @@ package com.n2k02.seq.audio
 
 import android.content.Context
 import com.n2k02.seq.model.SettingsStore
+import com.n2k02.seq.model.SpatialMode
 import com.n2k02.seq.model.SystemEqCurveBuilder
 
 /**
@@ -15,6 +16,8 @@ object SeqGlobalEffect {
   /** High priority so SEQ keeps control of the output mix when the user enabled it. */
   private const val PRIORITY = Int.MAX_VALUE
   private var effect: SeqSystemEffect? = null
+  private var spatialEffect: SeqSpatialEffect? = null
+  private var spatialStatus: String = "Off"
   private var app: Context? = null
   private var lastRouteKey: Pair<Boolean, List<Int>>? = null
 
@@ -108,6 +111,7 @@ object SeqGlobalEffect {
         publish(false, "", "Output mix effect unavailable", car, SeqRoute.describe(ctx, car))
         return
       }
+      syncSpatial(s.spatialMode, s.spatialIntensity)
       publish(true, current.engine, "Output mix effect enabled", car, SeqRoute.describe(ctx, car))
     } catch (e: Exception) {
       SeqRuntime.log("All-media effect failed: " + e.javaClass.simpleName)
@@ -115,7 +119,29 @@ object SeqGlobalEffect {
     }
   }
 
+  private fun syncSpatial(mode: SpatialMode, intensity: Float) {
+    if (mode == SpatialMode.OFF || !mode.platformSupported) {
+      spatialEffect?.close()
+      spatialEffect = null
+      spatialStatus = if (mode == SpatialMode.OFF) "Off" else "Requires player PCM; unavailable for external apps"
+      return
+    }
+    val current = spatialEffect ?: SeqSpatialEffect.open()?.also { spatialEffect = it }
+    val applied = current?.update(mode, intensity) == true
+    val next = if (applied) "Android Virtualizer enabled • output processing unverified"
+      else "Android Virtualizer unavailable on this output"
+    if (next != spatialStatus) SeqRuntime.log("Spatial mode=${mode.name}: $next")
+    spatialStatus = next
+    if (!applied) {
+      spatialEffect?.close()
+      spatialEffect = null
+    }
+  }
+
   @Synchronized fun release(reason: String? = null) {
+    spatialEffect?.close()
+    spatialEffect = null
+    spatialStatus = "Off"
     effect?.let {
       it.close()
       SeqRuntime.log("All-media effect released reason=${reason ?: "requested"}")
