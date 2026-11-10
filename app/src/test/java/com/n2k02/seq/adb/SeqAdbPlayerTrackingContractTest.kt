@@ -33,5 +33,8 @@ class SeqAdbPlayerTrackingContractTest {
     assertTrue(adb.contains("pm grant com.n2k02.seq android.permission.DUMP"))
     assertFalse(monitor.contains("grantDumpPermission"))
     assertFalse(monitor.contains("PLAYER_PROBE"))
+    val listener = source("java/com/n2k02/seq/audio/SeqMediaSessionListener.kt")
+    assertTrue(listener.contains("LocalAdbDiagnostics.active?.inspectPlayerChange()"))
+    assertTrue(adb.contains("now - lastPlayerProbeAt < 30_000L"))
   }
 }
