@@ -48,8 +48,8 @@ class SeqOrbitPcm(sampleRate: Int) {
       val leftScale = kotlin.math.sqrt((1f - pan) * 0.5f)
       val rightScale = kotlin.math.sqrt((1f + pan) * 0.5f)
       val delay = min(90f, rate * 0.0006f * strength).toInt()
-      val delayedL = history[0][(index - if (pan > 0) delay else 0 + 256) and 255]
-      val delayedR = history[1][(index - if (pan < 0) delay else 0 + 256) and 255]
+      val delayedL = history[0][(index - (if (pan > 0) delay else 0) + 256) and 255]
+      val delayedR = history[1][(index - (if (pan < 0) delay else 0) + 256) and 255]
       val mono = (delayedL + delayedR) * 0.5f
       val wetL = mono * leftScale
       val wetR = mono * rightScale
