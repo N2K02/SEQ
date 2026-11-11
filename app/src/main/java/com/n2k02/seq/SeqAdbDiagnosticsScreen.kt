@@ -54,6 +54,11 @@ internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, 
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         },
     )
+}
+
+/** Read-only and explicitly user-triggered audio diagnostics, separate from ADB setup. */
+@Composable
+internal fun SeqAudioDiagnosticsScreen(context: Context, adb: LocalAdbDiagnostics) {
     val probe by adb.playerProbe.collectAsState()
     val effects by adb.effectProbe.collectAsState()
     val audit by adb.exclusiveAudit.collectAsState()
