@@ -139,7 +139,7 @@ class SeqDspChain(val sampleRate: Int) {
   private var compEnv = 0f
   private val compAttack = exp(-1.0 / (0.010 * sampleRate)).toFloat()
   private val compRelease = exp(-1.0 / (0.150 * sampleRate)).toFloat()
-  private var levelEnv = 0.1f
+  private var levelEnv = 0.01f
   private var levelGain = 1f
   private val levelCoef = exp(-1.0 / (3.0 * sampleRate)).toFloat()
   private val levelGainCoef = exp(-1.0 / (1.5 * sampleRate)).toFloat()
@@ -167,7 +167,7 @@ class SeqDspChain(val sampleRate: Int) {
     x1.fill(0.0); x2.fill(0.0); y1.fill(0.0); y2.fill(0.0)
     crossDelay.fill(0f); crossIndex = 0; crossLpL = 0f; crossLpR = 0f
     hall.reset(); orbit.reset()
-    compEnv = 0f; levelEnv = 0.1f; levelGain = 1f
+    compEnv = 0f; levelEnv = 0.01f; levelGain = 1f
     delayL.fill(0f); delayR.fill(0f); delayIndex = 0
     peakEnv = 0f; peakHold = 0; limGain = 1f
     fade = 0f
@@ -188,6 +188,11 @@ class SeqDspChain(val sampleRate: Int) {
         for (i in p.filterCount * 2 until MAX_FILTERS * 2) { x1[i] = 0.0; x2[i] = 0.0; y1[i] = 0.0; y2[i] = 0.0 }
       }
       if (p.spatial != plan.spatial) { hall.reset(); orbit.reset() }
+      if (p.limiter != plan.limiter) {
+        // Never replay stale lookahead audio after the limiter is switched back on.
+        delayL.fill(0f); delayR.fill(0f); delayIndex = 0
+        peakEnv = 0f; peakHold = 0; limGain = 1f
+      }
       plan = p
     }
     gainAndFade(buffer, offset, frames, p.preGain)
@@ -309,7 +314,7 @@ class SeqDspChain(val sampleRate: Int) {
     compEnv = env
   }
 
-  /** Slow RMS leveller toward −20 dBFS, limited to ±6 dB, frozen on silence. */
+  /** Slow RMS leveller toward −20 dBFS (power 0.01), limited to ±6 dB, frozen on silence. */
   private fun level(b: FloatArray, offset: Int, frames: Int) {
     val target = 0.1f
     var env = levelEnv

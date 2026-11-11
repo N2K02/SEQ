@@ -125,11 +125,13 @@ class SeqEngineService : Service() {
       val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
       manager.createNotificationChannel(NotificationChannel(CHANNEL, "SEQ audio engine", NotificationManager.IMPORTANCE_LOW))
       val consent = projectionData(intent)
-      if (consent != null && dsp == null) {
+      val projectionForeground = consent != null && dsp == null && runCatching {
         // Android 14+: the mediaProjection FGS type must be active before getMediaProjection().
         startForeground(1001, notification(dspActive = true), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
           ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        startDsp(consent)
+      }.onFailure { SeqRuntime.log("SEQ DSP foreground refused: " + it.javaClass.simpleName) }.isSuccess
+      if (projectionForeground) {
+        startDsp(consent!!)
       } else if (dsp == null) {
         val resume = SeqDspRuntime.wanted(settings.read()) && SeqDspRuntime.readiness(this).ready
         startForeground(1001, notification(resume = resume), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)

@@ -125,12 +125,13 @@ class SeqDspEngine(
   /** Apps that could not be captured during this run (mute lost, silent capture). */
   private val excludedUids = HashSet<Int>()
   @Volatile private var captureExcludes: Set<Int> = emptySet()
+  /** When a muted session was first seen playing; the silent-capture watchdog uses this. */
   private val mutedAt = HashMap<Int, Long>()
   private val sessionUid = HashMap<Int, Int>()
   private var lastPlayers: List<SeqPlayback> = emptyList()
   private var lastFallback: Set<Int> = emptySet()
   private val capturableCache = HashMap<Int, Boolean>()
-  private var packagePolicy: Map<String, Boolean> = emptyMap()
+  private var packagePolicy: Map<String, Boolean>? = null
 
   private val projectionCallback = object : MediaProjection.Callback() {
     override fun onStop() { stop("Android stopped audio capture") }
@@ -211,7 +212,7 @@ class SeqDspEngine(
       SeqRuntime.log("SEQ DSP session dump unavailable")
       return
     }
-    if (packagePolicy.isEmpty()) {
+    if (packagePolicy == null) {
       packagePolicy = SeqServiceDumper.dump(app, "media.audio_policy")
         ?.let(SeqSessionDumpParser::parseCapturePolicy).orEmpty()
     }
@@ -224,15 +225,19 @@ class SeqDspEngine(
       val uid = players.first { it.sessionId == sid }.uid
       sessionUid[sid] = uid
       if (sid !in muter.sessions) {
-        if (muter.mute(sid)) {
-          mutedAt[sid] = now
-          sessions.removeCallbacks(watchdogRunnable)
-          sessions.postDelayed(watchdogRunnable, SeqDspSessionPolicy.WATCHDOG_MIN_MS + 200)
-        } else failed += uid
+        if (!muter.mute(sid)) failed += uid
       }
+      // Arm the watchdog when playback starts, not when a paused session was muted.
+      val started = players.any { it.sessionId == sid && it.started }
+      if (started && sid in muter.sessions && sid !in mutedAt) {
+        mutedAt[sid] = now
+        sessions.removeCallbacks(watchdogRunnable)
+        sessions.postDelayed(watchdogRunnable, SeqDspSessionPolicy.WATCHDOG_MIN_MS + 200)
+      } else if (!started) mutedAt.remove(sid)
     }
     muter.retain(decision.mute)
     mutedAt.keys.retainAll(muter.sessions)
+    sessionUid.keys.retainAll(decision.mute)
     if (!running.get()) {
       // stop() raced with this scan: never leave an app muted.
       muter.releaseAll()
@@ -288,7 +293,7 @@ class SeqDspEngine(
     val packages = pm.getPackagesForUid(uid).orEmpty()
     if (packages.isEmpty()) return@getOrPut true
     packages.all { pkg ->
-      packagePolicy[pkg] ?: runCatching {
+      packagePolicy?.get(pkg) ?: runCatching {
         // Apps targeting Android 9 or lower are not capturable unless they opt in.
         pm.getApplicationInfo(pkg, 0).targetSdkVersion >= Build.VERSION_CODES.Q
       }.getOrDefault(true)
@@ -311,7 +316,13 @@ class SeqDspEngine(
   private fun startThreads(initialRecorder: AudioRecord, track: AudioTrack) {
     val chunk = burstFrames
     val routeChanged = AtomicBoolean(false)
-    val routing = AudioRouting.OnRoutingChangedListener { routeChanged.set(true) }
+    var routedDevice: Int? = null
+    val routing = AudioRouting.OnRoutingChangedListener { router ->
+      // Start/resume also reports the initial route; only a different device needs a flush.
+      val id = router.routedDevice?.id
+      if (routedDevice != null && id != null && id != routedDevice) routeChanged.set(true)
+      if (id != null) routedDevice = id
+    }
     track.addOnRoutingChangedListener(routing, main)
 
     captureThread = Thread({
@@ -338,7 +349,10 @@ class SeqDspEngine(
           }
           val read = recorder.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
           if (read <= 0) {
-            if (read < 0) Thread.sleep(5)
+            if (read == AudioRecord.ERROR_DEAD_OBJECT || read == AudioRecord.ERROR_INVALID_OPERATION) {
+              // audioserver restarted or the recorder was invalidated: rebuild it.
+              recreateRecorder = true
+            } else if (read < 0) Thread.sleep(5)
             continue
           }
           val frames = read / 2
@@ -379,17 +393,18 @@ class SeqDspEngine(
           }
           if (!primed) {
             // Pre-roll two bursts to absorb scheduling jitter without adding much latency.
-            if (ring.availableFrames() < chunk * 2) { LockSupport.parkNanos(200_000); continue }
+            if (ring.availableFrames() < chunk * 2) { LockSupport.parkNanos(1_000_000); continue }
             primed = true
             track.play()
           }
-          if (ring.availableFrames() < chunk) { LockSupport.parkNanos(200_000); continue }
+          if (ring.availableFrames() < chunk) { LockSupport.parkNanos(1_000_000); continue }
           ring.poll(buffer, 0, chunk)
           chain.process(buffer, 0, chunk)
           var offset = 0
           while (offset < buffer.size && running.get()) {
             val written = track.write(buffer, offset, buffer.size - offset, AudioTrack.WRITE_BLOCKING)
-            if (written <= 0) break
+            if (written < 0) error("track write $written") // dead output → stop and fall back
+            if (written == 0) break
             offset += written
           }
           blocks++

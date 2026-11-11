@@ -218,7 +218,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         dspGrantRunning = true
         scope.launch {
             val ok = try {
-                if (!sharedCore.retry(auto = true)) {
+                if (withTimeoutOrNull(25_000L) { sharedCore.retry(auto = true) } != true) {
                     dspGrant.value = "ADB not connected · SEQ DSP setup waits for ADB"
                     false
                 } else {

@@ -384,6 +384,7 @@ class MainActivity : ComponentActivity() {
                       Column(Modifier.weight(1f)) {
                         Text("SEQ DSP engine", style = MaterialTheme.typography.titleMedium)
                         Text(when {
+                          !SeqDspRuntime.supported -> "Needs Android 12 or newer • Android effects in use"
                           !settings.dspEngine -> "Off • Android effects only"
                           dsp.processing -> "Active • " + (if (dsp.apps == 1) "1 app" else "${dsp.apps} apps") +
                             " • ${dsp.sampleRate / 1000} kHz • ~${dsp.latencyMs} ms"

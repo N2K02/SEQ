@@ -110,6 +110,29 @@ class SeqDspChainTest {
     }
   }
 
+  @Test fun reEnablingTheLimiterNeverReplaysStaleLookaheadAudio() {
+    val chain = SeqDspChain(rate)
+    chain.update(plan(limiter = true, ceiling = 0.9f))
+    chain.reset()
+    run(chain, 500.0, 0.8f, 0.2)
+    chain.update(plan(limiter = false))
+    run(chain, 500.0, 0.0f, 0.05)
+    chain.update(plan(limiter = true, ceiling = 0.9f))
+    val silence = FloatArray(block * 2)
+    chain.process(silence)
+    assertTrue(silence.all { it == 0f })
+  }
+
+  @Test fun evenVolumeLevellerIsBoundedToSixDecibels() {
+    val chain = SeqDspChain(rate)
+    chain.update(SeqDspPlan(rate, DoubleArray(0), 1f, SpatialMode.OFF, 0f, false, 1f, -18f,
+      limiter = false, ceiling = 1f, leveler = true))
+    chain.reset()
+    val quiet = run(chain, 440.0, 0.01f, 8.0)
+    val gain = rms(quiet, quiet.size * 3 / 4) / (0.01 / sqrt(2.0))
+    assertTrue("gain=$gain", gain in 1.5..2.05)
+  }
+
   @Test fun planSwapIsAllocationSafeAndValidated() {
     val chain = SeqDspChain(rate)
     assertThrows(IllegalArgumentException::class.java) { chain.update(SeqDspPlan.passthrough(44100)) }

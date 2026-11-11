@@ -28,7 +28,9 @@ object SeqDspRuntime {
     dump = SeqServiceDumper.granted(context)
   )
 
+  /** Session IDs appear in `dumpsys audio` from Android 12; older devices keep the Android effect. */
+  val supported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
   /** SEQ DSP is the default engine whenever the device can run it. */
-  fun wanted(s: EngineSettings): Boolean =
-    s.enabled && s.dspEngine && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+  fun wanted(s: EngineSettings): Boolean = s.enabled && s.dspEngine && supported
 }

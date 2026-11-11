@@ -78,7 +78,7 @@ object SeqServiceDumper {
     context.checkSelfPermission(android.Manifest.permission.DUMP) ==
       android.content.pm.PackageManager.PERMISSION_GRANTED
 
-  fun dump(context: Context, service: String, timeoutMs: Long = 1500): String? {
+  fun dump(context: Context, service: String, timeoutMs: Long = 3000): String? {
     if (!granted(context)) return null
     return binderDump(service) ?: shellDump(service, timeoutMs)
   }
