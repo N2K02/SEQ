@@ -107,16 +107,25 @@ class SeqDspEngine(
     .takeIf { it in 8000..192000 } ?: 48000
   private val burstFrames = (audio.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)
     ?.toIntOrNull() ?: 256).coerceIn(128, 512)
+  /** Frames per capture/render cycle: >= 10 ms, so the threads wake ~100x/s, not ~250x/s. */
+  private val chunkFrames = SeqDspTiming.chunkFrames(burstFrames, sampleRate)
   private val chain = SeqDspChain(sampleRate)
   private val ring = SeqPcmRingBuffer(8192)
 
   private val running = AtomicBoolean(false)
   @Volatile private var idle = true
+    set(value) {
+      if (field == value) return
+      field = value
+      // Wake both threads at once: they sleep long while idle (battery) but must react fast.
+      captureThread?.let(LockSupport::unpark)
+      renderThread?.let(LockSupport::unpark)
+    }
   @Volatile private var recreateRecorder = false
   @Volatile private var flushRequested = false
   @Volatile private var lastSignalMs = 0L
-  private var captureThread: Thread? = null
-  private var renderThread: Thread? = null
+  @Volatile private var captureThread: Thread? = null
+  @Volatile private var renderThread: Thread? = null
 
   private val sessionThread = HandlerThread("SEQ-DSP-Sessions").apply { start() }
   private val sessions = Handler(sessionThread.looper)
@@ -170,7 +179,7 @@ class SeqDspEngine(
     startThreads(recorder, track)
     publish("Starting")
     sessions.post(scanRunnable)
-    SeqRuntime.log("SEQ DSP started rate=$sampleRate burst=$burstFrames")
+    SeqRuntime.log("SEQ DSP started rate=$sampleRate burst=$burstFrames chunk=$chunkFrames")
     return true
   }
 
@@ -303,7 +312,7 @@ class SeqDspEngine(
   private fun publish(state: String) {
     val muted = muter.sessions
     val apps = muted.mapNotNull(sessionUid::get).toSet().size
-    val latency = (ring.availableFrames() + burstFrames * 2) * 1000 / sampleRate
+    val latency = (ring.availableFrames() + chunkFrames * 2) * 1000 / sampleRate
     status.value = SeqDspStatus(
       running = running.get(), processing = running.get() && !idle && muted.isNotEmpty(),
       sampleRate = sampleRate, apps = apps, fallbackSessions = lastFallback.size,
@@ -314,7 +323,7 @@ class SeqDspEngine(
   // ---- Audio threads ----
 
   private fun startThreads(initialRecorder: AudioRecord, track: AudioTrack) {
-    val chunk = burstFrames
+    val chunk = chunkFrames
     val routeChanged = AtomicBoolean(false)
     var routedDevice: Int? = null
     val routing = AudioRouting.OnRoutingChangedListener { router ->
@@ -340,7 +349,7 @@ class SeqDspEngine(
           }
           if (idle) {
             if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) recorder.stop()
-            Thread.sleep(40)
+            LockSupport.parkNanos(SeqDspTiming.IDLE_PARK_NS) // woken early when music starts
             continue
           }
           if (recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
@@ -360,6 +369,7 @@ class SeqDspEngine(
           for (i in 0 until frames * 2) { val a = abs(buffer[i]); if (a > peak) peak = a }
           if (peak > 1e-5f) lastSignalMs = SystemClock.elapsedRealtime()
           ring.offer(buffer, 0, frames) // full ring drops newest: render trims backlog
+          renderThread?.let(LockSupport::unpark) // hand over: no polling on the render side
         }
       } catch (interrupted: InterruptedException) {
       } catch (failure: Exception) {
@@ -388,16 +398,16 @@ class SeqDspEngine(
           if (idle) {
             if (track.playState == AudioTrack.PLAYSTATE_PLAYING) { track.pause(); track.flush() }
             if (primed) { chain.reset(); primed = false; ring.flush() }
-            Thread.sleep(40)
+            LockSupport.parkNanos(SeqDspTiming.IDLE_PARK_NS) // woken early when music starts
             continue
           }
           if (!primed) {
             // Pre-roll two bursts to absorb scheduling jitter without adding much latency.
-            if (ring.availableFrames() < chunk * 2) { LockSupport.parkNanos(1_000_000); continue }
+            if (ring.availableFrames() < chunk * 2) { LockSupport.parkNanos(SeqDspTiming.WAIT_PARK_NS); continue }
             primed = true
             track.play()
           }
-          if (ring.availableFrames() < chunk) { LockSupport.parkNanos(1_000_000); continue }
+          if (ring.availableFrames() < chunk) { LockSupport.parkNanos(SeqDspTiming.WAIT_PARK_NS); continue }
           ring.poll(buffer, 0, chunk)
           chain.process(buffer, 0, chunk)
           var offset = 0
@@ -437,7 +447,7 @@ class SeqDspEngine(
       .setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_IN_STEREO).build()
     val minimum = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_STEREO,
       AudioFormat.ENCODING_PCM_FLOAT)
-    val size = maxOf(minimum * 2, burstFrames * 8 * 4)
+    val size = maxOf(minimum * 2, chunkFrames * 8 * 4)
     val record = AudioRecord.Builder().setAudioFormat(format).setBufferSizeInBytes(size)
       .setAudioPlaybackCaptureConfig(config.build()).build()
     if (record.state != AudioRecord.STATE_INITIALIZED) {
@@ -461,7 +471,7 @@ class SeqDspEngine(
       .setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build()
     val minimum = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_STEREO,
       AudioFormat.ENCODING_PCM_FLOAT)
-    val size = maxOf(minimum * 2, burstFrames * 8 * 4)
+    val size = maxOf(minimum * 2, chunkFrames * 8 * 4)
     val track = AudioTrack.Builder().setAudioAttributes(attributes.build()).setAudioFormat(format)
       .setTransferMode(AudioTrack.MODE_STREAM)
       .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
