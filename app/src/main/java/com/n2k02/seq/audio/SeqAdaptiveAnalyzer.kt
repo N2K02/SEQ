@@ -60,6 +60,10 @@ object SeqAdaptiveAnalyzer {
   private var fft = ByteArray(0)
   private var retryAfterMs = 0L
   private var consecutiveErrors = 0
+  /** Consecutive decisions without a significant change; at SETTLE_AFTER analysis pauses. */
+  private var stableDecisions = 0
+  private var settled = false
+  private const val SETTLE_AFTER = 3 // ~12 s of steady spectrum
 
   fun permitted(context: Context) =
     context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -78,7 +82,11 @@ object SeqAdaptiveAnalyzer {
     if (key != outputKey) {
       resetCorrection()
       outputKey = key
+      settled = false
     }
+    // Settled: keep the correction, leave the output-mix Visualizer off (battery)
+    // until the track or the route changes.
+    if (settled) { release(); return }
     if (visualizer != null || SystemClock.elapsedRealtime() < retryAfterMs) return
     var candidate: Visualizer? = null
     var phase = "create"
@@ -103,6 +111,22 @@ object SeqAdaptiveAnalyzer {
   }
 
   @Synchronized fun stop() {
+    release()
+    consecutiveErrors = 0
+    outputKey = null
+    settled = false
+    resetCorrection()
+  }
+
+  /** New track: measure again from the current correction (no jump back to neutral). */
+  @Synchronized fun onTrackChanged(context: Context) {
+    if (!settled) return
+    settled = false
+    stableDecisions = 0
+    sync(context, SeqPlaybackMonitor.mediaActive.value)
+  }
+
+  private fun release() {
     main.removeCallbacks(tick)
     visualizer?.let {
       runCatching { it.setEnabled(false) }
@@ -110,15 +134,15 @@ object SeqAdaptiveAnalyzer {
     }
     visualizer = null
     fft = ByteArray(0)
-    consecutiveErrors = 0
-    outputKey = null
-    resetCorrection()
+    sum = null
+    frames = 0
   }
 
   private fun resetCorrection() {
     sum = null
     frames = 0
     smoothed = Tone()
+    stableDecisions = 0
     correction = Tone()
     state.value = Tone()
   }
@@ -167,9 +191,13 @@ object SeqAdaptiveAnalyzer {
     val target = AutoSound.adapt(avg) ?: return
     smoothed = AutoSound.smooth(smoothed, target)
     if (AutoSound.significant(correction, smoothed)) {
+      stableDecisions = 0
       correction = smoothed
       state.value = smoothed
       app?.let(SeqGlobalEffect::sync)
+    } else if (AutoSound.settled(++stableDecisions, SETTLE_AFTER)) {
+      settled = true
+      release()
     }
   }
 }

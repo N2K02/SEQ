@@ -68,6 +68,9 @@ object AutoSound {
     previous.treble + (next.treble - previous.treble) * alpha)
 
   /** Only push an update when it is large enough to matter (avoids constant re-tuning). */
+  /** Analysis can pause once this many decisions in a row changed nothing audible. */
+  fun settled(stableDecisions: Int, needed: Int): Boolean = stableDecisions >= needed
+
   fun significant(a: Tone, b: Tone, thresholdDb: Float = 0.4f) =
     abs(a.bass - b.bass) >= thresholdDb || abs(a.mid - b.mid) >= thresholdDb ||
       abs(a.treble - b.treble) >= thresholdDb

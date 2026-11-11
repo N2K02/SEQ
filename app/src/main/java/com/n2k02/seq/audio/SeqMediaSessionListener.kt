@@ -90,6 +90,10 @@ class SeqMediaSessionListener : NotificationListenerService() {
       if(candidate.sessionToken !in controllers) {
         val callback=object:MediaController.Callback() {
           override fun onPlaybackStateChanged(state:PlaybackState?) { scheduleRefresh() }
+          // New track: let SEQ Auto re-measure its balance (it pauses once settled).
+          override fun onMetadataChanged(metadata:android.media.MediaMetadata?) {
+            SeqAdaptiveAnalyzer.onTrackChanged(this@SeqMediaSessionListener)
+          }
           override fun onSessionDestroyed() {
             fromNotifications.entries.removeAll { it.value.sessionToken==candidate.sessionToken }
             scheduleRefresh()
