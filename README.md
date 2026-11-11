@@ -5,7 +5,10 @@ SEQ is a battery-conscious experimental sound engine, with a minimal neutral Mat
 **Experimental PR:** https://github.com/N2K02/SEQ/pull/1
 
 ## What SEQ does
-- **SEQ Auto** (default) tunes media routed through a compatible Android output mix. It uses 31-band DynamicsProcessing with headroom and an optional limiter. If the platform rejects that backend, SEQ tries the OEM EQ with cut-only band levels. **Pure** bypasses SEQ processing.
+- **SEQ DSP engine** (default, Android 10+): modelled on [RootlessBrennanDSP](https://github.com/bshea-1/RootlessBrennanDSP). SEQ captures media with Android playback capture, processes it in 32-bit float and replays it; each captured app's direct output is muted per session, so nothing doubles. It provides true parametric/AutoEQ filters, smart headroom, a lookahead limiter with anti-clipping, Wide/Headphone 3D crossfeed/Concert hall/Cinema/8D orbit, and Even volume (automatic in the car). Real-time threads, bounded latency, and the engine idles while nothing plays.
+- **Automatic setup:** when ADB is connected once, SEQ grants itself DUMP and RECORD_AUDIO and pre-approves its own capture request (`appops PROJECT_MEDIA allow`). Later starts usually show no dialog. If Android stops capture, SEQ immediately restores every app's sound and uses the Android effect. The notification can resume SEQ DSP.
+- **Automatic fallback:** apps that block playback capture, or an app whose session another effect app controls, keep their direct sound and get SEQ's per-session Android EQ. SEQ does not bypass any app's capture restriction. Without DUMP or consent, the output-mix effect below is used.
+- **SEQ Auto** (default) tunes media routed through a compatible Android output mix. It uses 10-band DynamicsProcessing with headroom and an optional limiter. If the platform rejects that backend, SEQ tries the OEM EQ with cut-only band levels. **Pure** bypasses SEQ processing.
 - On Android 13 and later, SEQ uses Android's predicted media route when available. Wired headphones, Bluetooth, phone speaker and car mode each have their own tuning.
 - The Home screen reports whether Android enabled the effect. Actual processing depends on the device, player and route. Verify wired and wireless Android Auto on a head unit or DHU, including apps that use offload or direct playback.
 

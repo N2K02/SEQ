@@ -63,13 +63,38 @@ class SeqMediaDetectionContractTest {
 
   @Test fun smoothEqChangesKeepHeadroomAndCancelOnShutdown() {
     val backend = source("java/com/n2k02/seq/audio/SeqSystemEffect.kt")
-    assertTrue(backend.contains("main.postDelayed(this, 20L)"))
+    assertTrue(backend.contains("main.postDelayed(this, 40L)"))
     assertTrue(backend.contains("SystemEqCurveBuilder.transitionGain(programmedCurve, curve)"))
     assertTrue(backend.indexOf("setInputGainAllChannelsTo(interim)") <
       backend.indexOf("dp.setPreEqAllChannelsTo(eq)"))
     assertTrue(backend.contains("closed = true"))
     assertTrue(backend.contains("cancelTransition()"))
-    assertTrue(backend.contains("pending?.let(main::removeCallbacks)"))
+    assertTrue(backend.contains("pending?.let { main.removeCallbacks(it); canceledTransitions++ }"))
+  }
+
+  @Test fun bluetoothChangesAreDebouncedAndRoutingIsExplicitlyUnverified() {
+    val monitor = source("java/com/n2k02/seq/audio/SeqPlaybackMonitor.kt")
+    val global = source("java/com/n2k02/seq/audio/SeqGlobalEffect.kt")
+    assertTrue(monitor.contains("scheduleRouteSync()"))
+    assertTrue(monitor.contains("ROUTE_SETTLE_MS = 250L"))
+    assertTrue(monitor.contains("main.removeCallbacks(routeSync)"))
+    assertTrue(monitor.contains("main.removeCallbacks(playbackSync)"))
+    assertTrue(global.contains("Bluetooth offload path unverified"))
+    assertTrue(global.contains("lastRouteKey = routeKey"))
+  }
+
+  @Test fun adaptiveFailuresHaveBoundedRetriesAndUsefulDiagnostics() {
+    val src = source("java/com/n2k02/seq/audio/SeqAdaptiveAnalyzer.kt")
+    assertTrue(src.contains("RETRY_MS = 30_000L"))
+    assertTrue(src.contains("retryAfterMs = SystemClock.elapsedRealtime() + RETRY_MS"))
+    assertTrue(src.contains("Adaptive unavailable phase="))
+    assertTrue(src.contains("consecutiveErrors >= 3"))
+  }
+
+  @Test fun newEffectDoesNotGetReprogrammedOnFirstSync() {
+    val src = source("java/com/n2k02/seq/audio/SeqGlobalEffect.kt")
+    assertTrue(src.contains("if (alreadyAttached) active.apply("))
+    assertTrue(src.contains("released reason="))
   }
 
   @Test fun comparisonRequiresAControlledEffectAndExcludesAdaptiveSamples() {

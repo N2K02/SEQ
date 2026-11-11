@@ -1,5 +1,6 @@
 package com.n2k02.seq.audio
 
+import com.n2k02.seq.adb.LocalAdbDiagnostics
 import android.app.Notification
 import android.content.ComponentName
 import android.graphics.Bitmap
@@ -89,6 +90,10 @@ class SeqMediaSessionListener : NotificationListenerService() {
       if(candidate.sessionToken !in controllers) {
         val callback=object:MediaController.Callback() {
           override fun onPlaybackStateChanged(state:PlaybackState?) { scheduleRefresh() }
+          // New track: let SEQ Auto re-measure its balance (it pauses once settled).
+          override fun onMetadataChanged(metadata:android.media.MediaMetadata?) {
+            SeqAdaptiveAnalyzer.onTrackChanged(this@SeqMediaSessionListener)
+          }
           override fun onSessionDestroyed() {
             fromNotifications.entries.removeAll { it.value.sessionToken==candidate.sessionToken }
             scheduleRefresh()
@@ -126,6 +131,7 @@ class SeqMediaSessionListener : NotificationListenerService() {
 
   /** Session-level change (names the app); the playback monitor covers start/stop + engine. */
   private fun onPlaybackChanged() {
+    LocalAdbDiagnostics.active?.inspectPlayerChange()
     SeqGlobalEffect.sync(this)
   }
 

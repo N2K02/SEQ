@@ -18,13 +18,17 @@ class SettingsStore(context: Context) {
       loudness = prefs.getBoolean("loudness", true),
       manualBands = SystemEqCurveBuilder.parseManual(prefs.getString("manual_bands", null)),
       bassBoost = readLevel("bass_boost", 0f, 0f..1f),
+      spatialMode = runCatching { SpatialMode.valueOf(prefs.getString("spatial_mode", "OFF") ?: "OFF") }.getOrDefault(SpatialMode.OFF),
+      spatialIntensity = readLevel("spatial_intensity", 0.6f, 0f..1f),
       preampDb = readLevel("preamp_db", 0f, -12f..6f),
       soundMode = runCatching { SoundMode.valueOf(prefs.getString("sound_mode", SoundMode.NATURAL.name) ?: "") }.getOrDefault(SoundMode.NATURAL),
       compressorEnabled = prefs.getBoolean("compressor_enabled", false),
       compressorRatio = readLevel("compressor_ratio", 1.5f, 1f..4f),
       compressorThresholdDb = readLevel("compressor_threshold", -18f, -36f..-6f),
       dynamicBass = prefs.getBoolean("dynamic_bass", false),
-      bassIntensity = readLevel("bass_intensity", 0.35f, 0f..1f)
+      bassIntensity = readLevel("bass_intensity", 0.35f, 0f..1f),
+      dspEngine = prefs.getBoolean("dsp_engine", true),
+      leveler = prefs.getBoolean("leveler", false)
     )
   }
   fun write(s: EngineSettings) {
@@ -32,22 +36,39 @@ class SettingsStore(context: Context) {
       .putBoolean("adaptive", s.adaptive)
       .putBoolean("peak_guard",s.peakGuard)
       .putString("manual_bands", s.manualBands?.joinToString(","))
-      .putFloat("bass_boost", s.bassBoost).putFloat("preamp_db", s.preampDb)
+      .putFloat("bass_boost", s.bassBoost)
+      .putString("spatial_mode", s.spatialMode.name)
+      .putFloat("spatial_intensity", s.spatialIntensity)
+      .putFloat("preamp_db", s.preampDb)
       .putString("sound_mode", s.soundMode.name)
       .putBoolean("compressor_enabled", s.compressorEnabled)
       .putFloat("compressor_ratio", s.compressorRatio)
       .putFloat("compressor_threshold", s.compressorThresholdDb)
       .putBoolean("dynamic_bass", s.dynamicBass).putFloat("bass_intensity", s.bassIntensity)
+      .putBoolean("dsp_engine", s.dspEngine).putBoolean("leveler", s.leveler)
       .putBoolean("all_media",s.allMedia).putBoolean("loudness",s.loudness).apply()
   }
   /**
    * Reset sound only. Preserve the on/off switch so music is not interrupted.
    * ADB identity and pairing are stored separately and are not touched.
    */
-  fun resetSound() {
+  fun resetSound(activeRoute: RouteKind? = null) {
     val enabled = prefs.getBoolean("enabled", false)
-    prefs.edit().clear().putBoolean("enabled", enabled).apply()
+    val dsp = prefs.getBoolean("dsp_engine", true)
+    val editor = prefs.edit().clear().putBoolean("enabled", enabled).putBoolean("dsp_engine", dsp)
+    // Write flat 10-band gains in the same transaction as the reset.
+    // Otherwise automatic tone reconstruction redraws nonzero sliders.
+    if (activeRoute != null) {
+      editor.putString("route_eq_${activeRoute.name}",
+        List(SystemEqCurveBuilder.BAND_COUNT) { 0f }.joinToString(","))
+    }
+    editor.apply()
   }
+
+  /** User cancelled Android's capture prompt: do not auto-ask again until they opt in. */
+  var dspDeclined: Boolean
+    get() = prefs.getBoolean("dsp_declined", false)
+    set(value) { prefs.edit().putBoolean("dsp_declined", value).apply() }
 
   private fun readLevel(key: String, default: Float, range: ClosedFloatingPointRange<Float>) =
     prefs.getFloat(key, default).takeIf { it in range } ?: default

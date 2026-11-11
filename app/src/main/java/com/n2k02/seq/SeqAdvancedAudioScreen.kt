@@ -13,7 +13,7 @@ import com.n2k02.seq.adb.LocalAdbDiagnostics
 import com.n2k02.seq.audio.SeqRuntime
 import java.util.Locale
 
-/** Live correction is computed into the 31-band platform response; not native sample-level PEQ. */
+/** Live correction is computed into the 10-band platform response; not native sample-level PEQ. */
 @Composable
 internal fun AdvancedAudioScreen(route: RouteKind, active: Boolean, correction: HeadphoneProfile?,
   adb: LocalAdbDiagnostics, onSave: (HeadphoneProfile?) -> Unit) {
@@ -27,7 +27,7 @@ internal fun AdvancedAudioScreen(route: RouteKind, active: Boolean, correction: 
 
   AudioCard {
     Text("Parametric equalization · ${route.title}", style = MaterialTheme.typography.titleMedium)
-    Text("The 31-band platform EQ approximates the combined PEQ response. " +
+    Text("The 10-band platform EQ approximates the combined PEQ response. " +
       "Narrow filters may differ from a sample-level biquad.", style = MaterialTheme.typography.bodySmall)
     Text(correction?.let { "${it.name} · ${it.filters.size} filters · preamp ${it.preampDb} dB" }
       ?: "No headphone correction selected", style = MaterialTheme.typography.bodyMedium)

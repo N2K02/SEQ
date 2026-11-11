@@ -1,7 +1,9 @@
 package com.n2k02.seq.audio
 
 import android.content.Context
+import com.n2k02.seq.audio.dsp.SeqDspRuntime
 import com.n2k02.seq.model.SettingsStore
+import com.n2k02.seq.model.SpatialMode
 import com.n2k02.seq.model.SystemEqCurveBuilder
 
 /**
@@ -15,7 +17,10 @@ object SeqGlobalEffect {
   /** High priority so SEQ keeps control of the output mix when the user enabled it. */
   private const val PRIORITY = Int.MAX_VALUE
   private var effect: SeqSystemEffect? = null
+  private var spatialEffect: SeqSpatialEffect? = null
+  private var spatialStatus: String = "Off"
   private var app: Context? = null
+  private var lastRouteKey: Pair<Boolean, List<Int>>? = null
 
   @Volatile var comparisonGeneration = 0
     private set
@@ -37,6 +42,21 @@ object SeqGlobalEffect {
     app = ctx
     val store = SettingsStore(ctx)
     val s = store.read()
+    if (SeqDspRuntime.active) {
+      // SEQ DSP replays processed audio itself; an output-mix effect would process it twice.
+      if (effect != null || spatialEffect != null) release("SEQ DSP engine active")
+      SeqDspRuntime.retune?.invoke()
+      return
+    }
+    if (HuaweiNativeEq.activeFor(ctx)) {
+      release("Huawei native EQ verified; Android effect bypassed")
+      SeqRuntime.status.value = SeqRuntime.status.value.copy(nativeActive = true,
+        lastEvent = "FreeBuds native EQ verified")
+      return
+    }
+    if (SeqRuntime.status.value.nativeActive) {
+      SeqRuntime.status.value = SeqRuntime.status.value.copy(nativeActive = false)
+    }
     if (!SessionPolicy.shouldProcessAllMedia(s)) {
       val reason = if (!s.enabled || !s.allMedia) null else "Pure bypass"
       release(reason)
@@ -52,6 +72,11 @@ object SeqGlobalEffect {
         return
       }
       val route = SeqRoute.kind(ctx, car)
+      val routeKey = SeqRoute.outputKey(ctx, car)
+      if (routeKey != lastRouteKey) {
+        lastRouteKey = routeKey
+        SeqRuntime.log("Effect route=${SeqRoute.describe(ctx, car)} engine=${effect?.engine ?: "not attached"} mix=0; Bluetooth offload path unverified")
+      }
       val bands = store.routeBands(route) ?: s.manualBands
       val bassDb = SystemEqCurveBuilder.bassGain(s, route, SeqRoute.volumeFraction(ctx))
       val correction = store.routeCorrection(route)
@@ -64,6 +89,7 @@ object SeqGlobalEffect {
           SeqRuntime.log("Output mix effect attached (" + it.engine + ")")
         }
 
+      val alreadyAttached = effect != null
       var current = effect ?: attach(allowDynamics = true)
       if (current != null && !current.hasControl) {
         publish(false, "", "Another audio effect app has control", car, SeqRoute.describe(ctx, car))
@@ -72,7 +98,9 @@ object SeqGlobalEffect {
       if (current != null) {
         val active = current
         val ready = runCatching {
-          active.apply(tone, s.peakGuard, s.peakCeilingDb, bands, bassDb, s.preampDb,
+          // A newly attached effect was configured and enabled in open().
+          // Avoid immediately programming it a second time.
+          if (alreadyAttached) active.apply(tone, s.peakGuard, s.peakCeilingDb, bands, bassDb, s.preampDb,
             correction, s.compressorEnabled, s.compressorRatio, s.compressorThresholdDb)
           active.enable()
         }.getOrDefault(false)
@@ -90,6 +118,7 @@ object SeqGlobalEffect {
         publish(false, "", "Output mix effect unavailable", car, SeqRoute.describe(ctx, car))
         return
       }
+      syncSpatial(s.spatialMode, s.spatialIntensity)
       publish(true, current.engine, "Output mix effect enabled", car, SeqRoute.describe(ctx, car))
     } catch (e: Exception) {
       SeqRuntime.log("All-media effect failed: " + e.javaClass.simpleName)
@@ -97,12 +126,35 @@ object SeqGlobalEffect {
     }
   }
 
+  private fun syncSpatial(mode: SpatialMode, intensity: Float) {
+    if (mode == SpatialMode.OFF || !mode.platformSupported) {
+      spatialEffect?.close()
+      spatialEffect = null
+      spatialStatus = if (mode == SpatialMode.OFF) "Off" else "Requires player PCM; unavailable for external apps"
+      return
+    }
+    val current = spatialEffect ?: SeqSpatialEffect.open()?.also { spatialEffect = it }
+    val applied = current?.update(mode, intensity) == true
+    val next = if (applied) "Android Virtualizer enabled • output processing unverified"
+      else "Android Virtualizer unavailable on this output"
+    if (next != spatialStatus) SeqRuntime.log("Spatial mode=${mode.name}: $next")
+    spatialStatus = next
+    if (!applied) {
+      spatialEffect?.close()
+      spatialEffect = null
+    }
+  }
+
   @Synchronized fun release(reason: String? = null) {
+    spatialEffect?.close()
+    spatialEffect = null
+    spatialStatus = "Off"
     effect?.let {
       it.close()
-      SeqRuntime.log("All-media effect released")
+      SeqRuntime.log("All-media effect released reason=${reason ?: "requested"}")
     }
     effect = null
+    lastRouteKey = null
     publish(false, "", reason ?: SeqRuntime.status.value.lastEvent)
   }
 
