@@ -67,7 +67,7 @@ private val accent: Color @Composable get() = MaterialTheme.colorScheme.primary
 private val background: Color @Composable get() = MaterialTheme.colorScheme.background
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
-  HOME("Equalizer"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"),
+  HOME("Equalizer"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"), AUDIO_DIAGNOSTICS("Audio diagnostics"),
   UPDATES("Updates")
 }
 
@@ -75,6 +75,7 @@ private fun pageIcon(page:Page):ImageVector = when(page) {
   Page.HOME -> Icons.Rounded.Home
   Page.SETTINGS -> Icons.Rounded.Settings
   Page.ADB_CONNECTION -> Icons.Rounded.SettingsInputAntenna
+  Page.AUDIO_DIAGNOSTICS -> Icons.Rounded.GraphicEq
   Page.UPDATES -> Icons.Rounded.SystemUpdate
 }
 
@@ -161,8 +162,8 @@ class MainActivity : ComponentActivity() {
         page = Page.SETTINGS
       }
       DisposableEffect(page) {
-        if(page==Page.ADB_CONNECTION) adb.enterPage()
-        onDispose { if(page==Page.ADB_CONNECTION) adb.leavePage() }
+        if(page==Page.ADB_CONNECTION || page==Page.AUDIO_DIAGNOSTICS) adb.enterPage()
+        onDispose { if(page==Page.ADB_CONNECTION || page==Page.AUDIO_DIAGNOSTICS) adb.leavePage() }
       }
       val updateStatus by SeqUpdater.controller.status.collectAsState()
       val experimentalEnabled by SeqUpdater.experimentalEnabled.collectAsState()
@@ -424,6 +425,8 @@ class MainActivity : ComponentActivity() {
                   MenuRow("ADB connection", "Optional connection and recovery", Icons.Rounded.SettingsInputAntenna) {
                     page = Page.ADB_CONNECTION
                   }
+                  MenuRow("Audio diagnostics", "Player tracking, audio effects and PCM compatibility",
+                    Icons.Rounded.GraphicEq) { page = Page.AUDIO_DIAGNOSTICS }
                   HorizontalDivider()
                   MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",
                     Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
@@ -432,6 +435,10 @@ class MainActivity : ComponentActivity() {
                   context = this@MainActivity,
                   adb = adb,
                   permissionRevision = permissionRevision
+                )
+                Page.AUDIO_DIAGNOSTICS -> SeqAudioDiagnosticsScreen(
+                  context = this@MainActivity,
+                  adb = adb
                 )
                 Page.UPDATES -> {
                   N2K02UpdateScreen(
