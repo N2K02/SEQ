@@ -75,7 +75,7 @@ class SeqPcmCaptureProbeService : Service() {
       val notification = Notification.Builder(this, CHANNEL)
         .setContentTitle("SEQ · PCM capture test")
         .setContentText("Read-only media capture test · no sound replay")
-        .setSmallIcon(android.R.drawable.ic_media_play)
+        .setSmallIcon(com.n2k02.seq.R.drawable.ic_stat_app)
         .setOngoing(true)
         .build()
       startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)

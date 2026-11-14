@@ -255,7 +255,7 @@ class SeqEngineService : Service() {
       else -> "Processing compatible apps"
     }
     return Notification.Builder(this, CHANNEL)
-      .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle("SEQ")
+      .setSmallIcon(com.n2k02.seq.R.drawable.ic_stat_app).setContentTitle("SEQ")
       .setContentText(text)
       .setOngoing(true).setContentIntent(open).build()
   }
