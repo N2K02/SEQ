@@ -7,7 +7,6 @@ import com.n2k02.seq.audio.SeqRuntime
 import dev.n2k02.updater.UpdateConfig
 import dev.n2k02.updater.UpdateInstallGuard
 import dev.n2k02.updater.UpdaterController
-import dev.n2k02.updater.PublishedUpdateSource
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Shared N2K02 updater with strict playback/engine install guard. */
@@ -37,7 +36,6 @@ object SeqUpdater {
       installedVersionCode=currentVersion(),
       experimentalEnabled=experimentalEnabled.value
     ),
-    publishedSource=PublishedUpdateSource("https://n2k02.github.io/seq/updates"),
     offerPreferences=prefs()
   )
   val controller:UpdaterController get()=requireNotNull(instance)

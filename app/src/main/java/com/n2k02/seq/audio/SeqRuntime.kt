@@ -13,11 +13,12 @@ data class EngineStatus(
   val effectAttached: Boolean = false,
   /** Output-mix effect active: every app's media, incl. Android Auto, is processed. */
   val globalActive: Boolean = false,
+  val nativeActive: Boolean = false,
   val effectEngine: String = "",
   val limiterAvailable: Boolean = false,
   val eqResponse: List<Float>? = null
 ) {
-  val processing: Boolean get() = effectAttached || globalActive
+  val processing: Boolean get() = effectAttached || globalActive || nativeActive
 }
 object SeqRuntime {
   val status = MutableStateFlow(EngineStatus())
@@ -35,7 +36,7 @@ object SeqRuntime {
   /** Engine service stopped; the all-media effect has its own lifecycle and is preserved. */
   fun reset() {
     val s = status.value
-    status.value = EngineStatus(globalActive = s.globalActive, effectEngine = s.effectEngine,
+    status.value = EngineStatus(globalActive = s.globalActive, nativeActive = s.nativeActive, effectEngine = s.effectEngine,
       limiterAvailable = s.limiterAvailable, eqResponse = s.eqResponse.takeIf { s.globalActive },
       carProfileActive = s.carProfileActive, route = s.route,
       lastEvent = if (s.globalActive) s.lastEvent else "Engine off")

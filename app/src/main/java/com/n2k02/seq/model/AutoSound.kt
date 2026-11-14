@@ -26,7 +26,7 @@ object AutoSound {
   private const val MAX_ADAPT = 3f
 
   fun base(route: RouteKind): Tone = when (route) {
-    RouteKind.SPEAKER -> Tone(bass = -1f, mid = 0.5f, treble = -0.5f)
+    RouteKind.SPEAKER -> Tone(bass = -1f, mid = 0.85f, treble = 0.65f)
     RouteKind.WIRED -> Tone(bass = 2f, treble = -0.75f)
     RouteKind.BLUETOOTH -> Tone(bass = 1f, treble = -0.5f)
     RouteKind.CAR -> Tone(bass = 1.5f, mid = -0.5f, treble = 0.5f)
@@ -38,7 +38,7 @@ object AutoSound {
       base.treble + adaptive.treble * 0.5f)
     if (route == RouteKind.SPEAKER) {
       return Tone(tone.bass.coerceIn(-3f, 0f), tone.mid.coerceIn(-1f, 1f),
-        tone.treble.coerceIn(-2f, 0f))
+        tone.treble.coerceIn(-2f, 1f))
     }
     if (route == RouteKind.CAR) return tone
     val volume = 0.5f + 0.5f * volumeFraction.coerceIn(0f, 1f)
@@ -68,6 +68,9 @@ object AutoSound {
     previous.treble + (next.treble - previous.treble) * alpha)
 
   /** Only push an update when it is large enough to matter (avoids constant re-tuning). */
+  /** Analysis can pause once this many decisions in a row changed nothing audible. */
+  fun settled(stableDecisions: Int, needed: Int): Boolean = stableDecisions >= needed
+
   fun significant(a: Tone, b: Tone, thresholdDb: Float = 0.4f) =
     abs(a.bass - b.bass) >= thresholdDb || abs(a.mid - b.mid) >= thresholdDb ||
       abs(a.treble - b.treble) >= thresholdDb

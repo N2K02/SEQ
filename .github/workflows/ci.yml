@@ -96,7 +96,6 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s scripts -p 'test_*.py'
           bash -n .github/scripts/latest-public-version.sh
-          bash -n .github/scripts/publish-distribution.sh
           bash -n .github/scripts/test-public-version.sh
       - name: Build selected APK, Android tests, lint and R8 release
         shell: bash
@@ -298,20 +297,3 @@ jobs:
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq '.assets[].name' | grep -Fxq "$APK_NAME"
-      - name: Check public distribution configuration
-        if: steps.gate.outputs.skip == 'false'
-        id: distribution
-        env:
-          DIST_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
-        run: |
-          if [ -n "$DIST_TOKEN" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::ANDROID_DISTRIBUTION_TOKEN is missing. Signed APK is on SEQ GitHub Releases but stable/experimental public update feeds cannot advance."
-          fi
-      - name: Publish mRadio-compatible public updater manifest
-        if: steps.gate.outputs.skip == 'false' && steps.distribution.outputs.enabled == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
-        run: bash .github/scripts/publish-distribution.sh

@@ -1,6 +1,9 @@
 package com.n2k02.seq.adb
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.SystemClock
 import com.n2k02.seq.audio.SeqRuntime
 import dev.n2k02.adb.core.AdbCore
 import dev.n2k02.adb.core.AdbOption
@@ -37,11 +40,26 @@ object AdbAccessPolicy {
     fun port(input: String): Int? = input.toIntOrNull()?.takeIf { it in 1..65535 }
     fun pairingCode(code: String): Boolean = code.matches(Regex("[0-9]{6}"))
     fun verifiedUid(output: String): Boolean = output.trim() == "2000"
+    /** SEQ DSP one-time setup; SEQ's own package only. */
+    const val DSP_SETUP = "pm grant com.n2k02.seq android.permission.DUMP; " +
+        "pm grant com.n2k02.seq android.permission.RECORD_AUDIO; " +
+        "appops set com.n2k02.seq PROJECT_MEDIA allow"
+    // Bounded, read-only observations. ADB dumpsys does not expose assignable AudioEffect sessions.
+    const val PLAYER_PROBE =
+        "dumpsys media.audio_flinger | grep -E -i '(track|session|offload|a2dp|bluetooth)' | head -n 35"
     const val AUDIO_DIAGNOSTIC =
         "dumpsys audio | grep -E -i 'audio route|output device|speaker|bluetooth|a2dp' | head -n 25"
     // Read-only capability hint; never activates or registers routing.
     const val ROUTING_PROBE =
         "id -u; dumpsys media.audio_policy | grep -E -i 'r_submix|remote.?submix|mix route|policy mix|policy mixes' | head -n 24"
+    /** Read-only vendor DSP/effect discovery. No policy mutations, PCM capture or media routing. */
+    const val EFFECTS_PROBE =
+        "dumpsys media.audio_flinger | grep -E -i '(effect chain|effect id|effect descriptor|effect name|reverb|spatial|virtualizer|offload|output thread|mixer thread)' | head -n 60"
+    const val POLICY_PROBE =
+        "dumpsys media.audio_policy | grep -E -i '(mix port|route|output|a2dp|offload|spatial|direct)' | head -n 60"
+    /** Permission audit only: never invokes registerAudioPolicy or changes routing. */
+    const val EXCLUSIVE_POLICY_AUDIT =
+        "id -u; dumpsys package com.n2k02.seq | grep -E -i '(MODIFY_AUDIO_ROUTING|CAPTURE_AUDIO_OUTPUT|CAPTURE_MEDIA_OUTPUT|MEDIA_CONTENT_CONTROL|DUMP|granted)' | head -n 55; dumpsys media.audio_policy | grep -E -i '(remote.?submix|r_submix|policy mix|registered mix|mix route)' | head -n 35"
 }
 
 /** SEQ-specific audio diagnostics only; ADB connection, discovery, pairing,
@@ -58,6 +76,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
     val sharedCore: AdbCore = SharedAdbHostAdapter.core(app)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var observer: Job? = null
+    @Volatile private var lastPlayerProbeAt = 0L
     @Volatile private var visible = false
     @Volatile private var shutDown = false
 
@@ -82,7 +101,13 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         )
     }
 
+    val playerProbe = MutableStateFlow("Player diagnostics not checked")
+    val dumpPermissionGranted: Boolean
+        get() = app.checkSelfPermission(Manifest.permission.DUMP) == PackageManager.PERMISSION_GRANTED
+    val dumpGrant = MutableStateFlow("DUMP permission not checked")
     val routingProbe = MutableStateFlow("Not checked · exclusive routing unverified")
+    val effectProbe = MutableStateFlow("Not checked · vendor effects unknown")
+    val exclusiveAudit = MutableStateFlow("Not checked · exclusive PCM routing unverified")
     val state = MutableStateFlow(AdbDiagnosticState(
         message = if (preferences.previouslyAuthorized) "Previously authorized • idle" else "ADB setup required",
         verifiedAt = preferences.lastVerifiedAt,
@@ -149,6 +174,114 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         }
     }
 
+    /** Explicit ADB permission request. DUMP is development/signature-restricted on
+     * many builds; a successful command is not proof of usable audio-effect control.
+     */
+    fun grantDumpPermission() {
+        if (shutDown) return
+        scope.launch {
+            dumpGrant.value = "Requesting diagnostic permission…"
+            val result = try {
+                if (!sharedCore.state.value.connected) {
+                    "ADB not connected"
+                } else {
+                    val output = sharedCore.execVerified(
+                        "pm grant com.n2k02.seq android.permission.DUMP", 8_000)
+                    if (dumpPermissionGranted) {
+                        "DUMP permission granted · diagnostics only"
+                    } else if (output.contains("Exception", true) || output.contains("denied", true)) {
+                        "DUMP permission unavailable on this Android build"
+                    } else {
+                        "DUMP permission not granted · Android restricted this permission"
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("DUMP permission grant unavailable: " + failure.javaClass.simpleName)
+                "DUMP permission unavailable: " + failure.javaClass.simpleName
+            }
+            dumpGrant.value = result
+        }
+    }
+
+    val dspGrant = MutableStateFlow("SEQ DSP permissions not checked")
+    @Volatile private var dspGrantRunning = false
+
+    /** One-time automatic setup for SEQ DSP over the verified UID 2000 shell:
+     * DUMP (find app audio sessions), RECORD_AUDIO (playback capture) and the PROJECT_MEDIA
+     * app-op (Android then approves SEQ's own capture request without a dialog).
+     * Fixed command, SEQ's own package only; never changes another app.
+     */
+    fun prepareDspPermissions(onDone: (Boolean) -> Unit = {}) {
+        if (shutDown || dspGrantRunning) return
+        dspGrantRunning = true
+        scope.launch {
+            val ok = try {
+                if (withTimeoutOrNull(25_000L) { sharedCore.retry(auto = true) } != true) {
+                    dspGrant.value = "ADB not connected · SEQ DSP setup waits for ADB"
+                    false
+                } else {
+                    sharedCore.execVerified(AdbAccessPolicy.DSP_SETUP, 8_000)
+                    val granted = dumpPermissionGranted &&
+                        app.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    dspGrant.value = if (granted) "SEQ DSP permissions ready" else "Android refused SEQ DSP permissions"
+                    SeqRuntime.log("SEQ DSP ADB setup granted=$granted")
+                    granted
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("SEQ DSP ADB setup unavailable: " + failure.javaClass.simpleName)
+                dspGrant.value = "SEQ DSP setup unavailable"
+                false
+            } finally {
+                dspGrantRunning = false
+            }
+            onDone(ok)
+        }
+    }
+
+    /** Poweramp-style diagnostic permission improves observations, not PCM access.
+     * Never assume shell-visible session IDs can be used to attach to another app.
+     */
+    fun inspectPlayers() {
+        if (shutDown) return
+        scope.launch {
+            playerProbe.value = "Inspecting player routing…"
+            val result = try {
+                if (!sharedCore.state.value.connected) {
+                    "ADB disconnected · Android media callbacks remain active"
+                } else {
+                    val output = sharedCore.execVerified(AdbAccessPolicy.PLAYER_PROBE, 8_000)
+                    val sample = output.lineSequence().map(String::trim)
+                        .filter(String::isNotEmpty).take(35).toList()
+                    val offload = sample.any { it.contains("offload", true) }
+                    val bluetooth = sample.any { it.contains("bluetooth", true) || it.contains("a2dp", true) }
+                    val matchingLines = sample.count { it.contains("track", true) || it.contains("session", true) }
+                    val permission = if (dumpPermissionGranted) "DUMP granted" else "DUMP not granted"
+                    SeqRuntime.log("ADB audio probe lines=$matchingLines offloadHint=$offload bluetoothHint=$bluetooth; PCM path unknown")
+                    "ADB snapshot · $permission · track/session lines=$matchingLines · offload hint=$offload · Bluetooth hint=$bluetooth · effect path unverified"
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("ADB player probe unavailable: " + failure.javaClass.simpleName)
+                "ADB player probe unavailable"
+            }
+            playerProbe.value = result
+        }
+    }
+
+    /** Automatic probe only when media-player identity changes; bounded to 30 seconds. */
+    @Synchronized fun inspectPlayerChange() {
+        if (shutDown || !sharedCore.state.value.connected) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastPlayerProbeAt < 30_000L) return
+        lastPlayerProbeAt = now
+        inspectPlayers()
+    }
+
     /** Explicit, read-only routing probe; never starts capture or redirects audio. */
     fun inspectRouting() {
         if (shutDown) return
@@ -182,6 +315,79 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         }
     }
 
+    /** Capture only limited diagnostics from the already verified ADB shell.
+     * Do not treat an effect name in a dump as proof of usable session-0 control.
+     */
+    fun inspectAudioEffects() {
+        if (shutDown) return
+        effectProbe.value = "Inspecting audio effects and policy…"
+        scope.launch {
+            val result = try {
+                if (!sharedCore.state.value.connected) {
+                    "ADB disconnected · no privileged effect discovery"
+                } else {
+                    val effects = sharedCore.execVerified(AdbAccessPolicy.EFFECTS_PROBE, 8_000)
+                    val policy = sharedCore.execVerified(AdbAccessPolicy.POLICY_PROBE, 8_000)
+                    val lines = effects.lineSequence().filter { it.isNotBlank() }.take(60).toList()
+                    val routes = policy.lineSequence().filter { it.isNotBlank() }.take(60).toList()
+                    val reverb = lines.any { it.contains("reverb", true) }
+                    val spatial = lines.any { it.contains("spatial", true) || it.contains("virtualizer", true) }
+                    val offload = (lines + routes).any { it.contains("offload", true) }
+                    val bluetooth = routes.any { it.contains("a2dp", true) || it.contains("bluetooth", true) }
+                    SeqRuntime.log("ADB effects lines=${lines.size} policyLines=${routes.size} reverbHint=$reverb spatialHint=$spatial offloadHint=$offload bluetoothHint=$bluetooth")
+                    "AudioFlinger effects: ${lines.size} matching lines · reverb hint=$reverb · spatial hint=$spatial\n" +
+                        "Audio policy: ${routes.size} matching lines · Bluetooth hint=$bluetooth · offload hint=$offload\n" +
+                        "Discovery only: no PCM access or exclusive effect route confirmed"
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("ADB effect probe failed: " + failure.javaClass.simpleName)
+                "Effect discovery unavailable: " + failure.javaClass.simpleName
+            }
+            effectProbe.value = result
+        }
+    }
+
+    /** Read-only verification of what ADB shell can see. Even a granted package
+     * permission does not establish that AudioPolicy can register an exclusive
+     * mix on this OEM firmware. Never attempt a transaction based on this dump.
+     */
+    fun auditExclusivePcm() {
+        if (shutDown) return
+        exclusiveAudit.value = "Auditing exclusive PCM permissions…"
+        scope.launch {
+            val result = try {
+                if (!sharedCore.state.value.connected) {
+                    "ADB disconnected · normal audio unchanged"
+                } else {
+                    val output = sharedCore.execVerified(AdbAccessPolicy.EXCLUSIVE_POLICY_AUDIT, 8_000)
+                    val lines = output.lineSequence().map(String::trim)
+                        .filter(String::isNotEmpty).take(91).toList()
+                    val uid = lines.firstOrNull()
+                    val privilegedPermission = lines.any {
+                        it.contains("MODIFY_AUDIO_ROUTING", true) && it.contains("granted=true", true)
+                    }
+                    val routeHint = lines.any {
+                        it.contains("r_submix", true) || it.contains("remote_submix", true) ||
+                          it.contains("policy mix", true)
+                    }
+                    SeqRuntime.log("Exclusive PCM audit shellVerified=${uid == "2000"} permissionHint=$privilegedPermission remoteSubmixHint=$routeHint registered=false")
+                    if (uid != "2000") "ADB shell identity not verified · no routing changes"
+                    else "Audio routing permission hint=$privilegedPermission · submix hint=$routeHint\n" +
+                      "Exclusive policy NOT registered · original playback NOT suppressed\n" +
+                      "No protected audio or DRM capture bypass attempted"
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                SeqRuntime.log("Exclusive PCM audit failed: " + failure.javaClass.simpleName)
+                "Exclusive PCM audit unavailable: " + failure.javaClass.simpleName
+            }
+            exclusiveAudit.value = result
+        }
+    }
+
     fun disconnectTcp() { scope.launch { sharedCore.disableTcp() } }
     fun onAndroidPairingDialogVisible() { sharedCore.beginAutomaticPairingDiscovery() }
     fun pairDetectedCode(code: String) {
@@ -211,6 +417,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         leavePage()
         observer?.cancel()
         observer = null
+        if (active === this@LocalAdbDiagnostics) active = null
         scope.cancel()
     }
 
@@ -225,6 +432,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
             SharedAdbHostAdapter.shutdown()
             observer?.cancel()
             observer = null
+            if (active === this@LocalAdbDiagnostics) active = null
             scope.cancel()
         }
     }

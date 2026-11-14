@@ -16,8 +16,8 @@ data class SystemEqCurve(val inputGainDb: Float, val bands: List<SystemEqBand>) 
 }
 
 object SystemEqCurveBuilder {
-  /** 1/3-octave resolution across 20 Hz – 20 kHz. */
-  const val BAND_COUNT = 31
+  /** Single 10-band processing model across 20 Hz – 20 kHz. */
+  const val BAND_COUNT = 10
   private const val LOW_HZ = 20.0
   private const val SAFETY_MARGIN_DB = 0.5f
   private const val SPAN = 1000.0 // 20 Hz × 1000 = 20 kHz
@@ -42,24 +42,42 @@ object SystemEqCurveBuilder {
     val headroom = maxOf(boost, preamp).coerceIn(0.0, 24.0)
     return SystemEqCurve(round2(-headroom) + 0f, bands)
   }
+  /** Approximate a high-resolution curve with fewer Android hardware bands.
+   * Preserve the original input attenuation; never raise the combined peak.
+   */
+  fun forBandCount(curve: SystemEqCurve, count: Int): SystemEqCurve {
+    require(count in 2..BAND_COUNT)
+    if (curve.bands.size == count) return curve
+    val bands = (0 until count).map { i ->
+      val high = cutoffHz(i, count).toFloat()
+      val low = if (i == 0) LOW_HZ else cutoffHz(i - 1, count)
+      val middle = sqrt(low * high.toDouble()).toFloat()
+      SystemEqBand(high, curve.levelAt(middle) - curve.inputGainDb)
+    }
+    val peak = bands.maxOf { it.gainDb }.coerceAtLeast(0f)
+    return SystemEqCurve(minOf(curve.inputGainDb, -peak), bands)
+  }
+
   const val MANUAL_LIMIT_DB = 6f
 
-  const val COMPACT_BAND_COUNT = 10
+  const val COMPACT_BAND_COUNT = BAND_COUNT
   private val compactCentres = listOf(31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
     .map(Int::toDouble)
-  private val precisionCentres = List(BAND_COUNT) { i ->
-    val lower = if (i == 0) LOW_HZ else cutoffHz(i - 1)
-    sqrt(lower * cutoffHz(i))
+  /** Read-only legacy 31-band centre frequencies for migrating saved presets. */
+  private val legacyCentres = List(31) { i ->
+    val lower = if (i == 0) LOW_HZ else cutoffHz(i - 1, 31)
+    sqrt(lower * cutoffHz(i, 31))
   }
 
   fun centres(count: Int): List<Double> = when (count) {
     COMPACT_BAND_COUNT -> compactCentres
-    BAND_COUNT -> precisionCentres
+    31 -> legacyCentres
     else -> error("Unsupported manual EQ band count")
   }
 
   /** Interpolate dB gain on a logarithmic frequency axis, holding the end bands flat. */
   fun resample(gains: List<Float>, count: Int): List<Float> {
+    require(count == BAND_COUNT || count == 31)
     val source = centres(gains.size)
     if (gains.size == count) return gains
     return centres(count).map { hz ->
@@ -79,13 +97,14 @@ object SystemEqCurveBuilder {
   fun parseManual(text: String?): List<Float>? {
     if (text == null) return null
     val bands = text.split(',')
-    if (bands.size != BAND_COUNT && bands.size != COMPACT_BAND_COUNT) return null
+    if (bands.size != BAND_COUNT && bands.size != 31) return null
     val gains = bands.map { it.toFloatOrNull() ?: return null }
-    return gains.takeIf { it.all { gain -> gain in -MANUAL_LIMIT_DB..MANUAL_LIMIT_DB } }
+    return gains.takeIf { it.all { gain -> gain.isFinite() && gain in -MANUAL_LIMIT_DB..MANUAL_LIMIT_DB } }
+      ?.let { if (it.size == BAND_COUNT) it else resample(it, BAND_COUNT) }
   }
 
   fun manual(gains: List<Float>): SystemEqCurve {
-    require(gains.all { it in -MANUAL_LIMIT_DB..MANUAL_LIMIT_DB })
+    require(gains.size == BAND_COUNT && gains.all { it.isFinite() && it in -MANUAL_LIMIT_DB..MANUAL_LIMIT_DB })
     val bands = resample(gains, BAND_COUNT).mapIndexed { i, gain -> SystemEqBand(cutoffHz(i).toFloat(), gain) }
     return SystemEqCurve(-gains.max().coerceAtLeast(0f) + 0f, bands)
   }
@@ -95,11 +114,12 @@ object SystemEqCurveBuilder {
     if (bassDb == 0f && preampDb == 0f) return curve
     val shelf = EqFilter(FilterKind.LOW_SHELF, 110.0, bassDb.toDouble(), 0.7071)
     val bands = curve.bands.mapIndexed { i, band ->
-      band.copy(gainDb = band.gainDb + EqResponse.db(precisionCentres[i], shelf).toFloat())
+      band.copy(gainDb = band.gainDb + EqResponse.db(compactCentres[i], shelf).toFloat())
     }
-    val boostBefore = curve.bands.maxOf { it.gainDb }.coerceAtLeast(0f)
     val boostAfter = bands.maxOf { it.gainDb }.coerceAtLeast(0f)
-    val headroom = curve.inputGainDb - (boostAfter - boostBefore).coerceAtLeast(0f)
+    // Protect the actual combined peak, not the sum of independent peak estimates.
+    // A bass shelf may lift a different region from the previous maximum.
+    val headroom = minOf(curve.inputGainDb, -boostAfter)
     val requested = headroom + if (allowBoost) preampDb else preampDb.coerceAtMost(0f)
     val safe = minOf(requested, -boostAfter - SAFETY_MARGIN_DB)
     return SystemEqCurve(if (boostAfter > 0f || requested > 0f) safe else requested, bands)
@@ -110,14 +130,11 @@ object SystemEqCurveBuilder {
     val base = manualBands?.let(::manual) ?: build(tone, null)
     val combined = if (correction == null) base else {
       val bands = base.bands.mapIndexed { i, band ->
-        val offset = correction.filters.sumOf { EqResponse.db(precisionCentres[i], it) }.toFloat()
+        val offset = correction.filters.sumOf { EqResponse.db(compactCentres[i], it) }.toFloat()
         band.copy(gainDb = band.gainDb + offset)
       }
-      val correctionBoost = (0..400).maxOf { i ->
-        correction.filters.sumOf { EqResponse.db(LOW_HZ * SPAN.pow(i / 400.0), it) }
-      }.coerceAtLeast(0.0).toFloat()
       val peak = bands.maxOf { it.gainDb }.coerceAtLeast(0f)
-      val safeInput = minOf(base.inputGainDb - correctionBoost,
+      val safeInput = minOf(base.inputGainDb,
         correction.preampDb.toFloat(), -peak)
       SystemEqCurve(safeInput, bands)
     }

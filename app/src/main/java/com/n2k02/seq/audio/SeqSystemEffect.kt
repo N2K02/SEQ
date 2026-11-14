@@ -13,15 +13,16 @@ import java.io.Closeable
 
 /**
  * Platform audio effect used for audio SEQ does not decode itself.
- * Prefers DynamicsProcessing (31 bands at exact SEQ response + input headroom + limiter);
+ * Prefers DynamicsProcessing (10 bands + input headroom + limiter);
  * falls back to the OEM Equalizer only when DynamicsProcessing is unavailable.
  */
 class SeqSystemEffect private constructor(
   private val dynamics: DynamicsProcessing?,
-  private val equalizer: Equalizer?
+  private val equalizer: Equalizer?,
+  private val dynamicsBands: Int = SystemEqCurveBuilder.BAND_COUNT
 ) : Closeable {
   private val effect: AudioEffect = dynamics ?: equalizer!!
-  val engine: String get() = if (dynamics != null) "31-band DynamicsProcessing" else "OEM EQ (no limiter)"
+  val engine: String get() = if (dynamics != null) "$dynamicsBands-band DynamicsProcessing" else "OEM EQ (no limiter)"
   val limiterAvailable: Boolean get() = dynamics != null
   val hasControl: Boolean get() = runCatching { effect.hasControl() }.getOrDefault(false)
 
@@ -32,9 +33,11 @@ class SeqSystemEffect private constructor(
       compressorEnabled: Boolean = false, compressorRatio: Float = 1.5f,
       compressorThresholdDb: Float = -18f, allowDynamics: Boolean = true, onControl: ((SeqSystemEffect, Boolean) -> Unit)? = null): SeqSystemEffect? {
       val preferred = if (allowDynamics) {
-        configure(runCatching { dynamics(priority, session) }.getOrNull(),
-          tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb,
-          correction, compressorEnabled, compressorRatio, compressorThresholdDb)
+        listOf(10, 5).firstNotNullOfOrNull { count ->
+          configure(runCatching { dynamics(priority, session, count) }.getOrNull(),
+            tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb,
+            correction, compressorEnabled, compressorRatio, compressorThresholdDb)
+        }
       } else null
       val created = preferred ?: configure(runCatching { equalizer(priority, session) }.getOrNull(),
           tone, peakGuard, ceilingDb, manualBands, bassDb, preampDb,
@@ -55,19 +58,23 @@ class SeqSystemEffect private constructor(
           correction, compressorEnabled, compressorRatio, compressorThresholdDb)
         candidate.enable()
       }.getOrDefault(false)
-      if (ready) return candidate
+      if (ready) {
+        SeqRuntime.log("DSP compatible engine=${candidate.engine}")
+        return candidate
+      }
+      SeqRuntime.log("DSP backend rejected engine=${candidate.engine}")
       candidate.close()
       return null
     }
 
-    private fun dynamics(priority: Int, session: Int): SeqSystemEffect? {
+    private fun dynamics(priority: Int, session: Int, bandCount: Int): SeqSystemEffect? {
       val config = DynamicsProcessing.Config.Builder(
         DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, 2,
-        true, SystemEqCurveBuilder.BAND_COUNT, true, 3, false, 0, true
+        true, bandCount, true, 3, false, 0, true
       ).build()
       val dp = DynamicsProcessing(priority, session, config)
       if (!dp.hasControl()) { dp.release(); return null }
-      return SeqSystemEffect(dp, null)
+      return SeqSystemEffect(dp, null, bandCount)
     }
     private fun equalizer(priority: Int, session: Int): SeqSystemEffect? {
       val eq = Equalizer(priority, session)
@@ -86,7 +93,12 @@ class SeqSystemEffect private constructor(
   private var pending: Runnable? = null
   private var lastOemLevels: List<Short>? = null
   private var closed = false
-  private fun cancelTransition() { pending?.let(main::removeCallbacks); pending = null }
+  private var transitionCount = 0
+  private var canceledTransitions = 0
+  private fun cancelTransition() {
+    pending?.let { main.removeCallbacks(it); canceledTransitions++ }
+    pending = null
+  }
   var response: List<Float>? = null
     private set
 
@@ -112,8 +124,9 @@ class SeqSystemEffect private constructor(
     cancelTransition()
     SeqRuntime.log("DSP update engine=$engine correction=${tuning.correction?.filters?.size ?: 0} compressor=${tuning.compressorEnabled} peakGuard=${tuning.peakGuard}")
     dynamics?.let { dp ->
-      val target = SystemEqCurveBuilder.configured(tuning.tone, tuning.manualBands, tuning.bassDb,
+      val fullCurve = SystemEqCurveBuilder.configured(tuning.tone, tuning.manualBands, tuning.bassDb,
         tuning.preampDb, allowBoost = tuning.peakGuard, correction = tuning.correction)
+      val target = SystemEqCurveBuilder.forBandCount(fullCurve, dynamicsBands)
       val old = programmedCurve
       val prior = this.tuning
       if (prior?.peakGuard != tuning.peakGuard || prior?.ceilingDb != tuning.ceilingDb) {
@@ -141,12 +154,14 @@ class SeqSystemEffect private constructor(
         return
       }
       if (old == target) return
+      transitionCount++
+      SeqRuntime.log("DSP curve input=${target.inputGainDb}dB peak=${target.bands.maxOf { it.gainDb }}dB transitions=$transitionCount canceled=$canceledTransitions")
       var step = 0
       val tick = object : Runnable {
         override fun run() {
           if (closed || !hasControl) { pending = null; return }
           step++
-          val fraction = step / 10f
+          val fraction = step / 5f
           val curve = SystemEqCurve(
             old.inputGainDb + (target.inputGainDb - old.inputGainDb) * fraction,
             old.bands.zip(target.bands) { a, b ->
@@ -159,11 +174,11 @@ class SeqSystemEffect private constructor(
             response = curve.bands.map { it.gainDb + curve.inputGainDb }
           }.isSuccess
           if (!success) { invalidateTuning(); return }
-          if (step < 10) { pending = this; main.postDelayed(this, 20L) }
+          if (step < 5) { pending = this; main.postDelayed(this, 40L) }
           else { pending = null; programmedCurve = target }
         }
       }
-      SeqRuntime.log("Dynamics EQ transition scheduled 200ms")
+      SeqRuntime.log("Dynamics EQ transition scheduled 200ms (5 updates)")
       pending = tick
       main.post(tick)
       return
@@ -196,7 +211,7 @@ class SeqSystemEffect private constructor(
         override fun run() {
           if (closed || !hasControl) { pending = null; return }
           step++
-          val fraction = step / 10f
+          val fraction = step / 5f
           val current = before.zip(target) { a, b ->
             (a.toFloat() + (b - a) * fraction).toInt().toShort()
           }
@@ -206,11 +221,11 @@ class SeqSystemEffect private constructor(
             response = current.map { it / 100f }
           }.isSuccess
           if (!success) { invalidateTuning(); return }
-          if (step < 10) { pending = this; main.postDelayed(this, 20L) }
+          if (step < 5) { pending = this; main.postDelayed(this, 40L) }
           else { pending = null; lastOemLevels = target }
         }
       }
-      SeqRuntime.log("OEM EQ transition scheduled 200ms")
+      SeqRuntime.log("OEM EQ transition scheduled 200ms (5 updates)")
       pending = tick
       main.post(tick)
     }
