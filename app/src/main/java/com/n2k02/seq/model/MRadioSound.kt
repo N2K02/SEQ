@@ -15,7 +15,7 @@ enum class SpatialMode(val label: String, val blurb: String, val platformSupport
   OFF("Off", "Original stereo, without spatial processing.", true),
   WIDE("Wide", "Wider stereo image.", true),
   HEADPHONE_3D("Headphone 3D", "Natural speaker-like crossfeed for headphones.", true),
-  HALL("Concert hall", "Concert-hall reverb • SEQ DSP engine.", false),
+  HALL("Concert hall", "Subtle stereo room • SEQ DSP engine.", false),
   CINEMA("Cinema", "Wide stereo with a subtle room.", true),
   ORBIT_8D("8D orbit", "Sound slowly circles your head • SEQ DSP engine.", false)
 }

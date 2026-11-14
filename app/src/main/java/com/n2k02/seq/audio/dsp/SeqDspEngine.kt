@@ -152,8 +152,11 @@ class SeqDspEngine(
   private val scanRunnable = Runnable { scan() }
   private val watchdogRunnable = Runnable { watchdog() }
 
+  private var lastInputs: SeqDspInputs? = null
   fun update(inputs: SeqDspInputs) {
+    if (inputs == lastInputs) return
     chain.update(SeqDspPlanner.plan(sampleRate, inputs))
+    lastInputs = inputs
   }
 
   fun start(): Boolean {

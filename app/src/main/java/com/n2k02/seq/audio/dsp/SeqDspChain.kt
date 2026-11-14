@@ -106,8 +106,16 @@ class SeqDspChain(val sampleRate: Int) {
 
   @Volatile private var pending: SeqDspPlan = SeqDspPlan.passthrough(sampleRate)
   private var plan: SeqDspPlan = pending
+  private var transitionGain = 1f
+  private val transitionStep = 1f / (sampleRate * 0.01f)
   fun update(next: SeqDspPlan) {
     require(next.sampleRate == sampleRate) { "Plan sample rate mismatch" }
+    val before = pending
+    if (next.coefficients.contentEquals(before.coefficients) && next.preGain == before.preGain &&
+      next.spatial == before.spatial && next.spatialStrength == before.spatialStrength &&
+      next.compressor == before.compressor && next.compressorRatio == before.compressorRatio &&
+      next.compressorThresholdDb == before.compressorThresholdDb && next.limiter == before.limiter &&
+      next.ceiling == before.ceiling && next.leveler == before.leveler) return
     pending = next
   }
   val current: SeqDspPlan get() = pending
@@ -172,6 +180,8 @@ class SeqDspChain(val sampleRate: Int) {
     peakEnv = 0f; peakHold = 0; limGain = 1f
     fade = 0f
     gain = pending.preGain
+    plan = pending
+    transitionGain = 1f
   }
 
   init { reset() }
@@ -181,13 +191,21 @@ class SeqDspChain(val sampleRate: Int) {
     require(offset >= 0 && offset % 2 == 0 && frames >= 0 &&
       offset.toLong() + frames.toLong() * 2 <= buffer.size.toLong())
     if (frames == 0) return
-    val p = pending
+    val requested = pending
+    // Fade the old plan to silence before changing coefficients or delay topology.
+    val switching = requested !== plan && transitionGain > 0f
+    val p = if (switching) plan else requested
     if (p !== plan) {
+      x1.fill(0.0); x2.fill(0.0); y1.fill(0.0); y2.fill(0.0)
+      crossDelay.fill(0f); crossLpL = 0f; crossLpR = 0f
+      hall.reset(); orbit.reset()
+      delayL.fill(0f); delayR.fill(0f); delayIndex = 0
+      peakEnv = 0f; peakHold = 0; limGain = 1f
       // Different filter count: clear only now-unused state so a new filter starts clean.
       if (p.filterCount != plan.filterCount) {
         for (i in p.filterCount * 2 until MAX_FILTERS * 2) { x1[i] = 0.0; x2[i] = 0.0; y1[i] = 0.0; y2[i] = 0.0 }
       }
-      if (p.spatial != plan.spatial) { hall.reset(); orbit.reset() }
+      if (p.spatial != plan.spatial || (p.spatialStrength == 0f) != (plan.spatialStrength == 0f)) { hall.reset(); orbit.reset() }
       if (p.limiter != plan.limiter) {
         // Never replay stale lookahead audio after the limiter is switched back on.
         delayL.fill(0f); delayR.fill(0f); delayIndex = 0
@@ -201,6 +219,14 @@ class SeqDspChain(val sampleRate: Int) {
     if (p.compressor && p.compressorRatio > 1f) compress(buffer, offset, frames, p)
     if (p.leveler) level(buffer, offset, frames)
     limit(buffer, offset, frames, p)
+    if (switching || transitionGain < 1f) {
+      for (i in 0 until frames) {
+        transitionGain = if (switching) maxOf(0f, transitionGain-transitionStep)
+          else minOf(1f, transitionGain+transitionStep)
+        val j=offset+i*2
+        buffer[j] *= transitionGain; buffer[j+1] *= transitionGain
+      }
+    }
   }
 
   private fun gainAndFade(b: FloatArray, offset: Int, frames: Int, target: Float) {
@@ -242,23 +268,24 @@ class SeqDspChain(val sampleRate: Int) {
 
   private fun spatialize(b: FloatArray, offset: Int, frames: Int, p: SeqDspPlan) {
     val strength = p.spatialStrength.coerceIn(0f, 1f)
+    if (strength == 0f) return
     when (p.spatial) {
       SpatialMode.OFF -> return
       SpatialMode.WIDE -> widen(b, offset, frames, 1f + 0.6f * strength)
-      SpatialMode.HEADPHONE_3D -> crossfeed(b, offset, frames, 0.12f + 0.33f * strength)
+      SpatialMode.HEADPHONE_3D -> crossfeed(b, offset, frames, 0.45f * strength)
       SpatialMode.HALL -> {
-        hall.wet = 0.08f + 0.22f * strength
-        hall.decay = 0.55f + 0.2f * strength
+        hall.wet = 0.15f * strength
+        hall.decay = 0.7f
         hall.process(b, offset, frames)
       }
       SpatialMode.CINEMA -> {
-        widen(b, offset, frames, 1.2f + 0.3f * strength)
-        hall.wet = 0.05f + 0.07f * strength
-        hall.decay = 0.5f
+        widen(b, offset, frames, 1f + 0.8f * strength)
+        hall.wet = 0.08f * strength
+        hall.decay = 0.65f
         hall.process(b, offset, frames)
       }
       SpatialMode.ORBIT_8D -> {
-        orbit.strength = 0.35f + 0.6f * strength
+        orbit.strength = strength
         orbit.process(b, offset, frames)
       }
     }

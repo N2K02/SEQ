@@ -127,7 +127,7 @@ object SeqGlobalEffect {
   }
 
   private fun syncSpatial(mode: SpatialMode, intensity: Float) {
-    if (mode == SpatialMode.OFF || !mode.platformSupported) {
+    if (mode == SpatialMode.OFF || intensity <= 0f || !mode.platformSupported) {
       spatialEffect?.close()
       spatialEffect = null
       spatialStatus = if (mode == SpatialMode.OFF) "Off" else "Requires player PCM; unavailable for external apps"

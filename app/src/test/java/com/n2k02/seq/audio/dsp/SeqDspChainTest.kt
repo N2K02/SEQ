@@ -133,6 +133,61 @@ class SeqDspChainTest {
     assertTrue("gain=$gain", gain in 1.5..2.05)
   }
 
+
+  @Test fun zeroIntensityIsIdenticalToSpatialOffForEveryMode() {
+    for (mode in SpatialMode.entries) {
+      val a = SeqDspChain(rate); a.update(plan(spatial = mode, strength = 0f)); a.reset()
+      val b = SeqDspChain(rate); b.update(plan()); b.reset()
+      assertArrayEquals(mode.name, run(b, 700.0, 0.8f, 0.3), run(a, 700.0, 0.8f, 0.3), 0f)
+    }
+  }
+  @Test fun hallDoesNotClipBeforeTheFinalLimiter() {
+    val a = com.n2k02.seq.audio.SeqHallPcm(rate)
+    val b = com.n2k02.seq.audio.SeqHallPcm(rate)
+    val input = FloatArray(rate*2) { i -> (0.8*sin(2*PI*1000*(i/2)/rate)).toFloat() }
+    val boosted = FloatArray(input.size) { input[it]*2f }
+    a.process(input); b.process(boosted)
+    for (i in input.indices) assertEquals("linear hall at $i",input[i]*2f,boosted[i],1e-5f)
+    assertTrue(boosted.any { abs(it)>1f }) // retained float headroom, deliberately not prematurely clipped
+  }
+  @Test fun concertDoesNotCollapseStereoOrReduceTheDrySignal() {
+    val hall = com.n2k02.seq.audio.SeqHallPcm(rate)
+    val impulse = FloatArray(rate*2); impulse[0]=0.8f
+    hall.process(impulse)
+    assertEquals(0.8f, impulse[0],0f)
+    assertTrue(impulse.indices.filter { it%2==1 }.all { impulse[it]==0f })
+  }
+
+
+  @Test fun allPresetsWithExtraBassRemainCleanWithoutRelyingOnTheLimiter() {
+    for (name in com.n2k02.seq.model.MRadioPresets.names) for (hz in listOf(60.0,230.0,910.0,3600.0,14000.0)) {
+      val input = SeqDspInputs(com.n2k02.seq.model.Tone(),com.n2k02.seq.model.MRadioPresets.bands(name),
+        9f,0f,null,false,0f,SpatialMode.OFF,0f,false,1.5f,-18f)
+      val c=SeqDspChain(rate); c.update(SeqDspPlanner.plan(rate,input)); c.reset()
+      val out=run(c,hz,0.95f,2.0)
+      var ss=0.0; var cc=0.0; var power=0.0
+      val start=out.size/4; val count=out.size/2-start
+      for (i in start until out.size/2) {
+        val x=out[i*2].toDouble(); val phase=2*PI*hz*i/rate
+        ss+=x*sin(phase); cc+=x*kotlin.math.cos(phase); power+=x*x
+      }
+      val fundamental=2*(ss*ss+cc*cc)/count
+      val distortion=sqrt(maxOf(0.0,power-fundamental)/fundamental)
+      assertEquals("$name $hz no hard clipping",0L,c.clampedSamples)
+      assertTrue("$name $hz distortion=$distortion",distortion<0.005)
+    }
+  }
+
+  @Test fun settingsChangesFadeBeforeChangingTheProcessingPlan() {
+    val c=SeqDspChain(rate); c.update(plan()); c.reset()
+    run(c,200.0,0.5f,0.2)
+    c.update(plan(spatial=SpatialMode.HALL,strength=1f))
+    val b=FloatArray(block*2) { 0.25f }
+    c.process(b)
+    assertTrue("old plan fades down",abs(b.last())<abs(b[0]))
+    repeat(10) { b.fill(0.25f); c.process(b); assertTrue(b.all { it.isFinite() && abs(it)<=1f }) }
+  }
+
   @Test fun planSwapIsAllocationSafeAndValidated() {
     val chain = SeqDspChain(rate)
     assertThrows(IllegalArgumentException::class.java) { chain.update(SeqDspPlan.passthrough(44100)) }

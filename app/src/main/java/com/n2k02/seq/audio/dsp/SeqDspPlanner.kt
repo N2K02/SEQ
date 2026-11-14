@@ -59,15 +59,23 @@ object SeqDspPlanner {
     }.coerceAtLeast(0.0)
 
   /**
-   * Smart headroom: full headroom without the limiter; half with it (the lookahead limiter
-   * catches the rare remaining peak, so EQ does not make music sound quieter).
+   * Full combined EQ and spatial headroom. The limiter catches transients rather than
+   * continuously repairing EQ boosts. An explicit positive user preamp remains an override
+   * when the limiter is enabled.
    */
   fun preGainDb(i: SeqDspInputs, boostDb: Double): Float {
-    val headroom = if (i.peakGuard) boostDb * 0.5 else boostDb
+    val strength = i.spatialStrength.coerceIn(0f, 1f)
+    val spatialBound = when (i.spatial) {
+      SpatialMode.WIDE -> 1f + 0.6f * strength
+      SpatialMode.CINEMA -> (1f + 0.8f * strength) * (1f + 0.16f * strength)
+      SpatialMode.HALL -> 1f + 0.3f * strength
+      else -> 1f
+    }
+    val headroom = boostDb + 20 * kotlin.math.log10(spatialBound.toDouble())
     val profilePreamp = i.correction?.takeIf { it.valid() && !i.eqBypass }?.preampDb ?: 0.0
     val base = minOf(-headroom, profilePreamp)
     val user = if (i.peakGuard) i.preampDb.toDouble() else minOf(0.0, i.preampDb.toDouble())
-    return (base + user).coerceIn(-24.0, 6.0).toFloat()
+    return (base + user).coerceIn(-96.0, 6.0).toFloat()
   }
 
   fun plan(sampleRate: Int, i: SeqDspInputs): SeqDspPlan {

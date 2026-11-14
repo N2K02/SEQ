@@ -35,12 +35,12 @@ class SeqOrbitPcm(sampleRate: Int) {
 
   fun process(stereo: FloatArray, offset: Int = 0, frames: Int = (stereo.size - offset) / 2) {
     require(offset >= 0 && offset % 2 == 0 && frames >= 0 && offset + frames * 2 <= stereo.size)
-    if (frames == 0) return
+    if (frames == 0 || strength == 0f) return
     val step = 2.0 * PI * revolutionsPerMinute / (60.0 * rate)
     for (frame in 0 until frames) {
       val pos = offset + frame * 2
-      val inputL = stereo[pos].coerceIn(-1f, 1f)
-      val inputR = stereo[pos + 1].coerceIn(-1f, 1f)
+      val inputL = stereo[pos]
+      val inputR = stereo[pos + 1]
       history[0][index] = inputL
       history[1][index] = inputR
       val pan = sin(phase).toFloat()
@@ -54,8 +54,8 @@ class SeqOrbitPcm(sampleRate: Int) {
       val wetL = mono * leftScale
       val wetR = mono * rightScale
       val mix = strength.coerceIn(0f, 1f)
-      stereo[pos] = (inputL * (1f - mix) + wetL * mix).coerceIn(-1f, 1f)
-      stereo[pos + 1] = (inputR * (1f - mix) + wetR * mix).coerceIn(-1f, 1f)
+      stereo[pos] = inputL * (1f - mix) + wetL * mix
+      stereo[pos + 1] = inputR * (1f - mix) + wetR * mix
       index = (index + 1) and 255
       phase += step
       if (phase >= 2.0 * PI) phase -= 2.0 * PI

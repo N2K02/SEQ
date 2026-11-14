@@ -31,7 +31,7 @@ class SeqDspPlannerTest {
     val plan = SeqDspPlanner.plan(48000, i)
     assertEquals(-6.0, db(plan.preGain), 0.3) // full headroom without limiter
     val limited = SeqDspPlanner.plan(48000, i.copy(peakGuard = true))
-    assertEquals(-3.0, db(limited.preGain), 0.3) // smart headroom with limiter
+    assertEquals(-6.0, db(limited.preGain), 0.3) // full headroom even with limiter
     assertTrue(limited.limiter)
   }
 
