@@ -25,8 +25,28 @@ class SeqDspTimingTest {
     assertFalse("no 1 ms polling", engine.contains("parkNanos(1_000_000)"))
     assertFalse("no fixed 40 ms idle loop", engine.contains("Thread.sleep(40)"))
     assertTrue(engine.contains("renderThread?.let(LockSupport::unpark) // hand over"))
-    assertTrue(engine.contains("LockSupport.parkNanos(SeqDspTiming.IDLE_PARK_NS)"))
+    assertTrue(engine.contains("SeqDspTiming.awaitIdle()"))
+    assertFalse(engine.contains("IDLE_PARK_NS"))
     assertTrue("idle change wakes both threads", engine.contains("captureThread?.let(LockSupport::unpark)"))
     assertTrue(SeqDspTiming.WAIT_PARK_NS >= 10_000_000L)
   }
+  @Test fun idleWaitConsumesPreexistingWakePermitAndStopInterrupt() {
+    val ready = java.util.concurrent.CountDownLatch(1)
+    val completed = java.util.concurrent.CountDownLatch(1)
+    val worker = Thread {
+      java.util.concurrent.locks.LockSupport.unpark(Thread.currentThread())
+      SeqDspTiming.awaitIdle() // a playback wake just before park must never be lost
+      ready.countDown()
+      SeqDspTiming.awaitIdle() // stop interrupts an indefinite idle wait
+      completed.countDown()
+    }
+    worker.start()
+    try {
+      assertTrue("early wake retained", ready.await(2, java.util.concurrent.TimeUnit.SECONDS))
+      worker.interrupt()
+      assertTrue("stop wakes idle", completed.await(2, java.util.concurrent.TimeUnit.SECONDS))
+    } finally { worker.interrupt(); worker.join(2000) }
+    assertFalse(worker.isAlive)
+  }
+
 }

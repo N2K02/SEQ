@@ -352,7 +352,7 @@ class SeqDspEngine(
           }
           if (idle) {
             if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) recorder.stop()
-            LockSupport.parkNanos(SeqDspTiming.IDLE_PARK_NS) // woken early when music starts
+            SeqDspTiming.awaitIdle() // woken early when music starts
             continue
           }
           if (recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
@@ -364,7 +364,9 @@ class SeqDspEngine(
             if (read == AudioRecord.ERROR_DEAD_OBJECT || read == AudioRecord.ERROR_INVALID_OPERATION) {
               // audioserver restarted or the recorder was invalidated: rebuild it.
               recreateRecorder = true
-            } else if (read < 0) Thread.sleep(5)
+            }
+            // A zero-byte read must not turn an unhealthy recorder into a busy loop.
+            Thread.sleep(5)
             continue
           }
           val frames = read / 2
@@ -401,7 +403,7 @@ class SeqDspEngine(
           if (idle) {
             if (track.playState == AudioTrack.PLAYSTATE_PLAYING) { track.pause(); track.flush() }
             if (primed) { chain.reset(); primed = false; ring.flush() }
-            LockSupport.parkNanos(SeqDspTiming.IDLE_PARK_NS) // woken early when music starts
+            SeqDspTiming.awaitIdle() // woken early when music starts
             continue
           }
           if (!primed) {

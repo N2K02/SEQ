@@ -4,8 +4,8 @@ package com.n2k02.seq.audio.dsp
 object SeqDspTiming {
   /** Render waits for the capture hand-off (unpark); this is only a safety timeout. */
   const val WAIT_PARK_NS = 20_000_000L
-  /** While no music plays; an idle change unparks the threads immediately. */
-  const val IDLE_PARK_NS = 500_000_000L
+  /** Playback changes and stop/interrupt wake idle threads; no periodic idle polling. */
+  fun awaitIdle() = java.util.concurrent.locks.LockSupport.park()
 
   /** At least 10 ms per cycle (fewer wake-ups), never below the device burst, at most 20 ms. */
   fun chunkFrames(burstFrames: Int, sampleRate: Int): Int {

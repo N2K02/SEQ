@@ -30,3 +30,20 @@ scan and probe trigonometry is reused across filters. Non-finite PCM is rejected
 stateful processing. The lookahead limiter applies a linked gain cap to its delayed
 stereo frame so attack residuals respect the selected sample ceiling. Recovery, narrow
 AutoEQ peaks and sudden stereo transients are covered; this is not a true-peak limiter.
+
+## Detailed fidelity and idle-power audit
+
+- Idle capture/render threads now park until playback wakes them or stop interrupts
+  them; the old 500 ms periodic idle wake is removed. Wake-before-park and stop
+  interruption are tested. Empty/failed recorder reads back off rather than spin.
+- 8D preserves each stereo channel instead of averaging to mono, so anti-phase content
+  is not cancelled. Fractional per-ear delay follows pan smoothly through the centre.
+  Gain and delay control values interpolate over 16 frames, reducing transcendental
+  control calculations without frame allocations or a stepped envelope.
+- The focused SEQ suite passes 34 checks, including DSP planning, invalid PCM recovery,
+  ceiling/stereo linkage, transport timing and spatial compatibility.
+- Capture/replay still adds latency, CPU work and OEM capture/mute dependencies compared
+  with the Android AudioEffect fallback. Phone listening, routing, capture-policy and
+  screen-off power tests remain essential. This is sample-peak, not true-peak limiting.
+
+Reference: https://developer.android.com/studio/profile/power-profiler
