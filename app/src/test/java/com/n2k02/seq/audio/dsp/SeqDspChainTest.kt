@@ -188,6 +188,17 @@ class SeqDspChainTest {
     repeat(10) { b.fill(0.25f); c.process(b); assertTrue(b.all { it.isFinite() && abs(it)<=1f }) }
   }
 
+
+  @Test fun aBoostedPlanReservesHeadroomBeforeItsFadeIn() {
+    val c=SeqDspChain(rate); c.update(plan()); c.reset()
+    run(c,60.0,0.9f,0.2)
+    val inputs=SeqDspInputs(com.n2k02.seq.model.Tone(),List(10) { 6f },9f,0f,null,
+      false,0f,SpatialMode.HALL,1f,false,1.5f,-18f)
+    c.update(SeqDspPlanner.plan(rate,inputs))
+    run(c,60.0,0.9f,0.5)
+    assertEquals("no overload during the preset transition",0L,c.clampedSamples)
+  }
+
   @Test fun planSwapIsAllocationSafeAndValidated() {
     val chain = SeqDspChain(rate)
     assertThrows(IllegalArgumentException::class.java) { chain.update(SeqDspPlan.passthrough(44100)) }

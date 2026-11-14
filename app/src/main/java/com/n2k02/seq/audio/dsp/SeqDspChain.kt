@@ -196,6 +196,7 @@ class SeqDspChain(val sampleRate: Int) {
     val switching = requested !== plan && transitionGain > 0f
     val p = if (switching) plan else requested
     if (p !== plan) {
+      gain = p.preGain // already faded out: reserve new boost headroom before fading in
       x1.fill(0.0); x2.fill(0.0); y1.fill(0.0); y2.fill(0.0)
       crossDelay.fill(0f); crossLpL = 0f; crossLpR = 0f
       hall.reset(); orbit.reset()
