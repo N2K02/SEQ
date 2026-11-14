@@ -254,8 +254,9 @@ class SeqDspChain(val sampleRate: Int) {
       if (f < 1f) f = minOf(1f, f + fadeStep)
       val k = g * f * f // squared ramp: smooth, no click on start
       val j = offset + i * 2
-      b[j] *= k
-      b[j + 1] *= k
+      // A corrupt decoder sample must never poison IIR, delay or level envelopes.
+      b[j] = if (b[j].isFinite()) b[j] * k else 0f
+      b[j + 1] = if (b[j + 1].isFinite()) b[j + 1] * k else 0f
     }
     gain = g
     fade = f
@@ -393,8 +394,15 @@ class SeqDspChain(val sampleRate: Int) {
         else peakEnv = maxOf(level, peakEnv * peakRelease)
         val target = if (peakEnv > ceiling) ceiling / peakEnv else 1f
         limGain += (target - limGain) * if (target < limGain) limAttack else limRelease
-        outL = delayL[delayIndex] * limGain
-        outR = delayR[delayIndex] * limGain
+        val delayedL = delayL[delayIndex]
+        val delayedR = delayR[delayIndex]
+        val delayedPeak = maxOf(abs(delayedL), abs(delayedR))
+        // Attack smoothing is asymptotic: cap its residual with linked gain,
+        // so a sudden transient honours the requested ceiling in both channels.
+        val safeGain = if (delayedPeak > ceiling) minOf(limGain, ceiling / delayedPeak) else limGain
+        limGain = safeGain // release smoothly from any residual correction
+        outL = delayedL * safeGain
+        outR = delayedR * safeGain
         delayL[delayIndex] = inL
         delayR[delayIndex] = inR
         delayIndex++

@@ -23,3 +23,10 @@ intersample true-peak protection.
 Preset transitions split an incoming buffer at the 10 ms fade-out boundary and apply
 the new plan to the remaining frames immediately. There is no extra block-sized mute.
 Regression coverage includes 240, 480, 512, 960 and 2048-frame buffers.
+
+Correction headroom includes exact and locally sampled narrow-filter centres, DC/Nyquist
+and a 0.5 dB interpolation reserve for boosted curves. Coefficients are prepared once per
+scan and probe trigonometry is reused across filters. Non-finite PCM is rejected before
+stateful processing. The lookahead limiter applies a linked gain cap to its delayed
+stereo frame so attack residuals respect the selected sample ceiling. Recovery, narrow
+AutoEQ peaks and sudden stereo transients are covered; this is not a true-peak limiter.

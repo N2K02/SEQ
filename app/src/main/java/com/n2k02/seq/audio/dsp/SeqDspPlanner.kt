@@ -51,12 +51,32 @@ object SeqDspPlanner {
       .take(SeqDspChain.MAX_FILTERS)
   }
 
-  /** Largest boost of the combined curve between 20 Hz and 20 kHz (dB, ≥ 0). */
-  fun maxBoostDb(filters: List<EqFilter>, sampleRate: Int): Double =
-    (0..240).maxOf { step ->
-      val hz = 20.0 * 1000.0.pow(step / 240.0)
-      filters.sumOf { EqResponse.db(hz, it, sampleRate.toDouble()) }
+  /** Response scan includes exact narrow-filter centres and the usable spectrum endpoints. */
+  fun maxBoostDb(filters: List<EqFilter>, sampleRate: Int): Double {
+    if (filters.isEmpty()) return 0.0
+    val top = minOf(20000.0, sampleRate * 0.5)
+    val frequencies = (0..1024).map { 10.0 * (top / 10.0).pow(it / 1024.0) } +
+      listOf(0.0, sampleRate * 0.5) + filters.flatMap { filter ->
+        val centre = filter.frequency.coerceIn(10.0, sampleRate * 0.475)
+        // Local samples cover interacting narrow peaks displaced from their centres.
+        (-8..8).map { centre * (1.0 + it / (32.0 * filter.q)) }
+          .filter { it in 0.0..(sampleRate * 0.5) }
+      }
+    // Prepare coefficients once; trig depends on the probe frequency, not each filter.
+    val coefficients = filters.map { SeqBiquad.coefficients(it, sampleRate) }
+    val boost = frequencies.maxOf { hz ->
+      val w = 2.0 * kotlin.math.PI * hz / sampleRate
+      val c = kotlin.math.cos(w); val s = kotlin.math.sin(w)
+      val c2 = kotlin.math.cos(2 * w); val s2 = kotlin.math.sin(2 * w)
+      coefficients.sumOf { f ->
+        val nr = f[0] + f[1] * c + f[2] * c2; val ni = -f[1] * s - f[2] * s2
+        val dr = 1 + f[3] * c + f[4] * c2; val di = -f[3] * s - f[4] * s2
+        10.0 * kotlin.math.log10((nr * nr + ni * ni) / (dr * dr + di * di))
+      }
     }.coerceAtLeast(0.0)
+    // Preserve exact flat/cut-only bypass, with a small reserve for scan interpolation.
+    return if (boost < 0.01) 0.0 else boost + 0.5
+  }
 
   /**
    * Full combined EQ and spatial headroom. The limiter catches transients rather than

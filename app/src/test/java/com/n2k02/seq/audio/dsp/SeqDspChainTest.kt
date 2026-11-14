@@ -234,4 +234,39 @@ class SeqDspChainTest {
     val out = run(chain, 100.0, 0.2f, 0.2)
     assertTrue(out.all { it.isFinite() })
   }
+  @Test fun corruptPcmNeverPoisonsFiltersRoomOrLimiterRecovery() {
+    for (mode in SpatialMode.entries) {
+      val chain = SeqDspChain(rate)
+      chain.update(plan(listOf(EqFilter(FilterKind.PEAK, 1100.0, 6.0, 1.0)),
+        preGain = .4f, spatial = mode, strength = 1f, limiter = true, ceiling = .7f))
+      chain.reset()
+      run(chain, 700.0, .5f, .2)
+      val corrupt = FloatArray(block * 2)
+      corrupt[0] = Float.NaN; corrupt[1] = Float.POSITIVE_INFINITY; corrupt[15] = Float.NEGATIVE_INFINITY
+      chain.process(corrupt)
+      assertTrue(mode.name, corrupt.all { it.isFinite() })
+      val after = run(chain, 700.0, .5f, .5)
+      assertTrue(mode.name, after.all { it.isFinite() && abs(it) <= .701f })
+      assertTrue("$mode recovers", rms(after, after.size / 2) > .01)
+    }
+  }
+
+  @Test fun suddenStereoTransientsRespectTheRequestedLimiterCeiling() {
+    for (ceiling in listOf(.25f, .5f, .9f)) {
+      val c = SeqDspChain(rate)
+      c.update(plan(limiter = true, ceiling = ceiling)); c.reset()
+      run(c, 500.0, 0f, .1)
+      val b = FloatArray(rate / 2 * 2)
+      for (frame in 0 until b.size / 2) {
+        val loud = frame % 997 < 20
+        b[frame * 2] = if (loud) 4f else .01f
+        b[frame * 2 + 1] = b[frame * 2] * .25f
+      }
+      c.process(b)
+      assertTrue("ceiling=$ceiling", b.all { abs(it) <= ceiling + 1e-6f })
+      for (i in b.indices step 2) assertEquals("linked stereo", b[i] * .25f, b[i+1], 1e-6f)
+      assertEquals("limiter does not hard clip", 0L, c.clampedSamples)
+    }
+  }
+
 }
