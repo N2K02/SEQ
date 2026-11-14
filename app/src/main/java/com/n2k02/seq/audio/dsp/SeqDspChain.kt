@@ -191,7 +191,23 @@ class SeqDspChain(val sampleRate: Int) {
     require(offset >= 0 && offset % 2 == 0 && frames >= 0 &&
       offset.toLong() + frames.toLong() * 2 <= buffer.size.toLong())
     if (frames == 0) return
-    val requested = pending
+    var position = offset
+    var remaining = frames
+    while (remaining > 0) {
+      val requested = pending
+      val fadingOut = requested !== plan && transitionGain > 0f
+      val untilSwap = if (fadingOut) kotlin.math.ceil((transitionGain / transitionStep).toDouble()).toInt().coerceAtLeast(1)
+        else remaining
+      val count = minOf(remaining, untilSwap)
+      processSegment(buffer, position, count, requested)
+      // Roundoff must not postpone the swap by another block (or even one frame).
+      if (fadingOut && count == untilSwap) transitionGain = 0f
+      position += count * 2
+      remaining -= count
+    }
+  }
+
+  private fun processSegment(buffer: FloatArray, offset: Int, frames: Int, requested: SeqDspPlan) {
     // Fade the old plan to silence before changing coefficients or delay topology.
     val switching = requested !== plan && transitionGain > 0f
     val p = if (switching) plan else requested

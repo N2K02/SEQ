@@ -199,6 +199,28 @@ class SeqDspChainTest {
     assertEquals("no overload during the preset transition",0L,c.clampedSamples)
   }
 
+  @Test fun presetFadeBoundaryDoesNotDependOnAudioBlockSize() {
+    for (size in listOf(240, 480, 512, 960, 2048)) {
+      val c = SeqDspChain(rate)
+      c.update(plan()); c.reset()
+      c.process(FloatArray(rate / 5 * 2) { .25f })
+      c.update(plan(preGain = .5f))
+      val out = FloatArray(4800 * 2)
+      var position = 0
+      while (position < out.size / 2) {
+        val frames = minOf(size, out.size / 2 - position)
+        val b = FloatArray(frames * 2) { .25f }
+        c.process(b)
+        b.copyInto(out, position * 2)
+        position += frames
+      }
+      // 10 ms down + 10 ms up; block rounding must not add a mute plateau.
+      assertTrue("block=$size resumes immediately after boundary", out[528 * 2] > .005f)
+      assertEquals("block=$size settled by 21 ms", .125f, out[1008 * 2], .001f)
+      assertTrue("block=$size no overload", out.all { it.isFinite() && abs(it) <= .251f })
+    }
+  }
+
   @Test fun planSwapIsAllocationSafeAndValidated() {
     val chain = SeqDspChain(rate)
     assertThrows(IllegalArgumentException::class.java) { chain.update(SeqDspPlan.passthrough(44100)) }

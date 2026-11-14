@@ -19,3 +19,7 @@ Regression checks cover all ten presets with extra bass, high-level sine distort
 0% neutrality, stereo separation, mode changes and stale tails. Tones establish linearity
 and peak safety for the tested cases; they do not replace music listening tests or prove
 intersample true-peak protection.
+
+Preset transitions split an incoming buffer at the 10 ms fade-out boundary and apply
+the new plan to the remaining frames immediately. There is no extra block-sized mute.
+Regression coverage includes 240, 480, 512, 960 and 2048-frame buffers.
