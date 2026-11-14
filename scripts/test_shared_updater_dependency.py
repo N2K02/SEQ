@@ -21,7 +21,7 @@ class SharedUpdaterDependencyTest(unittest.TestCase):
         self.assertIn('repository="N2K02/SEQ"', updater)
         self.assertIn("UpdateInstallGuard", updater)
         self.assertIn("!SeqRuntime.status.value.running", updater)
-        self.assertIn("PublishedUpdateSource", updater)
+        self.assertNotIn("PublishedUpdateSource", updater)
         self.assertIn("N2K02UpdateScreen(", activity)
         self.assertIn("installGuard = SeqUpdater.installGuard", activity)
 
