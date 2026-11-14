@@ -86,6 +86,9 @@ jobs:
             --previous "$LAST" --requested "${REQUESTED_VERSION:-}" \
             --run "$GITHUB_RUN_NUMBER" --pr "${PR_NUMBER:-1}" \
             --sha "${HEAD_SHA:-$BUILD_COMMIT}" > "$RUNNER_TEMP/seq-version.env"
+          # Stable must be installable over every earlier signed experimental APK.
+          code=$(python3 .github/scripts/version_code.py "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER")
+          sed -i "s/^SEQ_VERSION_CODE=.*/SEQ_VERSION_CODE=$code/" "$RUNNER_TEMP/seq-version.env"
           cat "$RUNNER_TEMP/seq-version.env" >> "$GITHUB_ENV"
           cat "$RUNNER_TEMP/seq-version.env" >> "$GITHUB_OUTPUT"
           echo "SEQ $CHANNEL from last stable $LAST; version $(grep SEQ_VERSION= "$RUNNER_TEMP/seq-version.env")"
