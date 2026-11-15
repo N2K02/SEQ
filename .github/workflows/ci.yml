@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+  pull_request_target:
+    types: [closed]
   workflow_dispatch:
     inputs:
       version:
@@ -17,16 +19,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: seq-build-${{ github.event.pull_request.number || github.ref }}
+  group: seq-build-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || 'main' }}
   cancel-in-progress: true
 
 env:
   APP: SEQ
+  BUILD_COMMIT: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
 
 jobs:
   android:
     name: Android unit tests, lint and R8 validation
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request_target' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.title, '[skip ci]')))
     runs-on: ubuntu-latest
     env:
       N2K02_PACKAGES_USER: N2K02
@@ -42,6 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-java@v5
         with:
@@ -81,7 +85,10 @@ jobs:
           python3 scripts/release_policy.py --channel "$CHANNEL" \
             --previous "$LAST" --requested "${REQUESTED_VERSION:-}" \
             --run "$GITHUB_RUN_NUMBER" --pr "${PR_NUMBER:-1}" \
-            --sha "${HEAD_SHA:-$GITHUB_SHA}" > "$RUNNER_TEMP/seq-version.env"
+            --sha "${HEAD_SHA:-$BUILD_COMMIT}" > "$RUNNER_TEMP/seq-version.env"
+          # Stable must be installable over every earlier signed experimental APK.
+          code=$(python3 .github/scripts/version_code.py "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER")
+          sed -i "s/^SEQ_VERSION_CODE=.*/SEQ_VERSION_CODE=$code/" "$RUNNER_TEMP/seq-version.env"
           cat "$RUNNER_TEMP/seq-version.env" >> "$GITHUB_ENV"
           cat "$RUNNER_TEMP/seq-version.env" >> "$GITHUB_OUTPUT"
           echo "SEQ $CHANNEL from last stable $LAST; version $(grep SEQ_VERSION= "$RUNNER_TEMP/seq-version.env")"
@@ -163,6 +170,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-java@v5
         with:
@@ -187,7 +195,7 @@ jobs:
             EXPECTED="$PR_HEAD_SHA"
             CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
           else
-            EXPECTED="$GITHUB_SHA"
+            EXPECTED="$BUILD_COMMIT"
             CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)"
           fi
           if [ "$CURRENT" != "$EXPECTED" ]; then
@@ -267,10 +275,10 @@ jobs:
             EXTRA=(--prerelease --latest=false)
           else
             CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)"
-            test "$CURRENT" = "$GITHUB_SHA" || {
+            test "$CURRENT" = "$BUILD_COMMIT" || {
               echo "::notice::main changed during build; not publishing older APK";exit 0;
             }
-            TARGET="$GITHUB_SHA"
+            TARGET="$BUILD_COMMIT"
             TITLE="SEQ $VERSION"
             EXTRA=(--latest)
           fi
