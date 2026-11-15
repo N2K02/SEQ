@@ -5,9 +5,13 @@ plugins {
 val seqVersion = providers.gradleProperty("seqVersion").orElse("0.3").get()
 val seqChannel = providers.gradleProperty("seqChannel").orElse("experimental").get()
 val seqRun = providers.gradleProperty("seqBuild").orNull?.toIntOrNull()
+val seqVersionCode = providers.gradleProperty("seqVersionCode").orNull?.toIntOrNull()
+val seqExperimentalNumber = providers.gradleProperty("seqExperimentalNumber").orNull?.takeIf { it.isNotBlank() }
 require(Regex("""[0-9]+\.[0-9]+""").matches(seqVersion))
 require(seqChannel in setOf("stable", "experimental"))
 require(seqRun == null || seqRun > 0)
+require(seqVersionCode == null || seqVersionCode in 1..2_100_000_000)
+require(seqExperimentalNumber == null || seqExperimentalNumber.matches(Regex("[1-9][0-9]*")))
 android {
   namespace = "com.n2k02.seq"
   compileSdk = 37
@@ -16,9 +20,9 @@ android {
     minSdk = 29
     targetSdk = 35
     // A single monotonically increasing code across experimental and stable releases.
-    versionCode = seqRun?.let { 100000 + it } ?: 3
+    versionCode = seqVersionCode ?: seqRun?.let { 100000 + it } ?: 3
     versionName = seqVersion + if (seqChannel == "experimental")
-      "-experimental." + (seqRun?.toString() ?: "local") else ""
+      "-experimental." + (seqExperimentalNumber ?: seqRun?.toString() ?: "local") else ""
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
   buildTypes {
