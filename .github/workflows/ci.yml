@@ -38,6 +38,7 @@ jobs:
       channel: ${{ steps.version.outputs.SEQ_CHANNEL }}
       version: ${{ steps.version.outputs.SEQ_VERSION }}
       version_code: ${{ steps.version.outputs.SEQ_VERSION_CODE }}
+      experimental_number: ${{ steps.version.outputs.SEQ_EXPERIMENTAL_NUMBER }}
       tag: ${{ steps.version.outputs.SEQ_TAG }}
       apk_name: ${{ steps.version.outputs.SEQ_APK_NAME }}
       build_variant: ${{ steps.version.outputs.SEQ_BUILD_VARIANT }}
@@ -86,6 +87,17 @@ jobs:
             --previous "$LAST" --requested "${REQUESTED_VERSION:-}" \
             --run "$GITHUB_RUN_NUMBER" --pr "${PR_NUMBER:-1}" \
             --sha "${HEAD_SHA:-$BUILD_COMMIT}" > "$RUNNER_TEMP/seq-version.env"
+          if [ "$CHANNEL" = "experimental" ]; then
+            python3 .github/scripts/experimental_naming.py --self-test
+            GITHUB_ENV="$RUNNER_TEMP/seq-naming.env" python3 .github/scripts/experimental_naming.py \
+              "$GITHUB_REPOSITORY" "$APP" "$GITHUB_RUN_NUMBER" "${PR_NUMBER:-1}"
+            base=$(sed -n 's/^VERSION=//p' "$RUNNER_TEMP/seq-naming.env")
+            suffix=$(sed -n 's/^VERSION_SUFFIX=//p' "$RUNNER_TEMP/seq-naming.env")
+            sequence=$(sed -n 's/^EXPERIMENTAL_NUMBER=//p' "$RUNNER_TEMP/seq-naming.env")
+            sed -i "s/^SEQ_VERSION=.*/SEQ_VERSION=$base/" "$RUNNER_TEMP/seq-version.env"
+            sed -i "s/^SEQ_APK_NAME=.*/SEQ_APK_NAME=SEQ-$base$suffix.apk/" "$RUNNER_TEMP/seq-version.env"
+            echo "SEQ_EXPERIMENTAL_NUMBER=$sequence" >> "$RUNNER_TEMP/seq-version.env"
+          fi
           # Stable must be installable over every earlier signed experimental APK.
           code=$(python3 .github/scripts/version_code.py "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER")
           sed -i "s/^SEQ_VERSION_CODE=.*/SEQ_VERSION_CODE=$code/" "$RUNNER_TEMP/seq-version.env"
@@ -112,7 +124,9 @@ jobs:
           gradle --no-daemon :app:testDebugUnitTest :app:lintDebug \
             :app:assembleDebug :app:assembleRelease \
             -PseqVersion="$SEQ_VERSION" -PseqChannel="$SEQ_CHANNEL" \
-            -PseqBuild="$GITHUB_RUN_NUMBER" 2>&1 | tee build.log || {
+            -PseqBuild="$GITHUB_RUN_NUMBER" \
+            -PseqVersionCode="$SEQ_VERSION_CODE" \
+            -PseqExperimentalNumber="${SEQ_EXPERIMENTAL_NUMBER:-}" 2>&1 | tee build.log || {
               echo "::group::All Android lint findings"
               if [ -f app/build/reports/lint-results-debug.txt ]; then
                 cat app/build/reports/lint-results-debug.txt
@@ -161,6 +175,7 @@ jobs:
       SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
       VERSION: ${{ needs.android.outputs.version }}
       VERSION_CODE: ${{ needs.android.outputs.version_code }}
+      EXPERIMENTAL_NUMBER: ${{ needs.android.outputs.experimental_number }}
       APK_NAME: ${{ needs.android.outputs.apk_name }}
       CHANNEL: ${{ needs.android.outputs.channel }}
       RELEASE_TAG: ${{ needs.android.outputs.tag }}
@@ -271,7 +286,7 @@ jobs:
               echo "::notice::PR changed during build; not publishing older APK";exit 0;
             }
             TARGET="$PR_HEAD_SHA"
-            TITLE="SEQ experimental · PR #$PR_NUMBER · build #$GITHUB_RUN_NUMBER"
+            TITLE="SEQ $VERSION-experimental.$EXPERIMENTAL_NUMBER"
             EXTRA=(--prerelease --latest=false)
           else
             CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)"
