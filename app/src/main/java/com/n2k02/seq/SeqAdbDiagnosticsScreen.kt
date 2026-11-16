@@ -26,13 +26,11 @@ import androidx.compose.ui.unit.dp
 import com.n2k02.seq.adb.LocalAdbDiagnostics
 import com.n2k02.seq.audio.SeqEffectCapabilities
 import com.n2k02.seq.adb.SeqPairingAccessibilityService
-import dev.n2k02.adb.core.AdbConnectionSettingsPage
-import dev.n2k02.adb.core.AdbDiagnosticsPage
 
 /** Canonical shared diagnostics first, with SEQ-specific audio detail only. */
 @Composable
 internal fun SeqAdbDiagnosticsScreen(adb: LocalAdbDiagnostics) {
-    AdbDiagnosticsPage(adb.sharedCore)
+    ShizukuSettingsPage()
     val state by adb.state.collectAsState()
     if (state.details.isNotEmpty()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -45,15 +43,7 @@ internal fun SeqAdbDiagnosticsScreen(adb: LocalAdbDiagnostics) {
 /** Exactly the same two ADB Settings cards and five switches as all other apps. */
 @Composable
 internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, permissionRevision: Int) {
-    val enabled = remember(permissionRevision) { SeqPairingAccessibilityService.isEnabled(context) }
-    AdbConnectionSettingsPage(
-        adb = adb.sharedCore,
-        accessibilityEnabled = enabled,
-        onOpenAccessibility = {
-            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        },
-    )
+    ShizukuSettingsPage()
 }
 
 /** Read-only and explicitly user-triggered audio diagnostics, separate from ADB setup. */
