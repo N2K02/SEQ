@@ -84,6 +84,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         val mode = when (s.transport) {
             AdbTransportMode.WIRELESS_TLS -> "Wireless TLS"
             AdbTransportMode.LOCAL_TCP_5555 -> "Local TCP/5555"
+            AdbTransportMode.SHIZUKU -> "Shizuku"
             AdbTransportMode.NONE -> "None"
         }
         return state.value.copy(
