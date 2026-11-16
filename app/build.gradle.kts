@@ -56,6 +56,8 @@ dependencies {
   implementation("dev.n2k02:theme:0.1.4")
   implementation("dev.n2k02:updater:0.1.36")
   implementation("dev.n2k02:adb-core:0.1.8")
+  implementation("dev.rikka.shizuku:api:13.1.5")
+  implementation("dev.rikka.shizuku:provider:13.1.5")
   implementation("androidx.compose.material:material-icons-extended")
   implementation("androidx.compose.foundation:foundation")
   implementation("androidx.compose.ui:ui")
