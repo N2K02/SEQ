@@ -30,6 +30,6 @@ class AdbBrokenStreamRecoveryTest {
         val transport = source("AdbTransport.kt")
         assertTrue(transport.contains("catch (cancelled: CancellationException)"))
         assertTrue(transport.contains("throw cancelled"))
-        assertTrue(transport.contains("Result.failure(e)"))
+        assertTrue(transport.contains("Result.failure(error)"))
     }
 }
