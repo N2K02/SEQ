@@ -67,7 +67,7 @@ private val accent: Color @Composable get() = MaterialTheme.colorScheme.primary
 private val background: Color @Composable get() = MaterialTheme.colorScheme.background
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
-  HOME("Equalizer"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"), AUDIO_DIAGNOSTICS("Audio diagnostics"),
+  HOME("Equalizer"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"), SHIZUKU("Shizuku"), AUDIO_DIAGNOSTICS("Audio diagnostics"),
   UPDATES("Updates")
 }
 
@@ -75,6 +75,7 @@ private fun pageIcon(page:Page):ImageVector = when(page) {
   Page.HOME -> Icons.Rounded.Home
   Page.SETTINGS -> Icons.Rounded.Settings
   Page.ADB_CONNECTION -> Icons.Rounded.SettingsInputAntenna
+  Page.SHIZUKU -> Icons.Rounded.SettingsInputAntenna
   Page.AUDIO_DIAGNOSTICS -> Icons.Rounded.GraphicEq
   Page.UPDATES -> Icons.Rounded.SystemUpdate
 }
@@ -422,6 +423,9 @@ class MainActivity : ComponentActivity() {
                         onCheckedChange = { on -> update(settings.copy(leveler = on)) })
                     }
                   }
+                  MenuRow("Shizuku", "LocalADB server and permission status", Icons.Rounded.SettingsInputAntenna) {
+                    page = Page.SHIZUKU
+                  }
                   MenuRow("ADB connection", "Optional connection and recovery", Icons.Rounded.SettingsInputAntenna) {
                     page = Page.ADB_CONNECTION
                   }
@@ -431,6 +435,7 @@ class MainActivity : ComponentActivity() {
                   MenuRow("Updates", if(updateStatus.hasPendingUpdate()) "New update available" else "Version and update checks",
                     Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
                 }
+                Page.SHIZUKU -> ShizukuSettingsPage()
                 Page.ADB_CONNECTION -> SeqAdbConnectionScreen(
                   context = this@MainActivity,
                   adb = adb,
