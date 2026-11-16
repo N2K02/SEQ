@@ -2,36 +2,36 @@ package com.n2k02.seq.adb
 
 import android.content.Context
 import android.content.pm.PackageManager
-import dev.n2k02.adb.core.AdbCore
-import dev.n2k02.adb.core.AdbCoreRegistry
-import dev.n2k02.adb.core.AdbHostHooks
-import dev.n2k02.adb.core.AdbOption
-import dev.n2k02.adb.core.AdbPreferenceStore
+import com.n2k02.seq.shizuku.ShizukuSession
+import com.n2k02.seq.shizuku.ShizukuSessionRegistry
+import com.n2k02.seq.shizuku.ShizukuHostHooks
+import com.n2k02.seq.shizuku.ShizukuOption
+import com.n2k02.seq.shizuku.ShizukuPreferences
 
 /** SEQ supplies its legacy identity/preferences, never a second ADB transport. */
-internal object SharedAdbHostAdapter {
-    @Volatile private var active: AdbCore? = null
+internal object ShizukuHostAdapter {
+    @Volatile private var active: ShizukuSession? = null
 
-    @Synchronized fun core(context: Context): AdbCore =
+    @Synchronized fun core(context: Context): ShizukuSession =
         active ?: create(context.applicationContext).also {
             active = it
-            AdbCoreRegistry.install(it)
+            ShizukuSessionRegistry.install(it)
         }
 
-    fun current(): AdbCore? = active
+    fun current(): ShizukuSession? = active
 
     suspend fun shutdown() {
         val old = synchronized(this) { active.also { active = null } }
         old?.let {
-            AdbCoreRegistry.uninstall(it)
+            ShizukuSessionRegistry.uninstall(it)
             it.quit()
         }
     }
 
-    private fun create(context: Context): AdbCore {
+    private fun create(context: Context): ShizukuSession {
         val app = context.applicationContext
-        lateinit var adb: AdbCore
-        val hooks = object : AdbHostHooks {
+        lateinit var adb: ShizukuSession
+        val hooks = object : ShizukuHostHooks {
             override suspend fun onRestoreAfterRestartChanged(enabled: Boolean) {
                 val permission = "android.permission.WRITE_SECURE_SETTINGS"
                 val granted = app.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
@@ -45,28 +45,28 @@ internal object SharedAdbHostAdapter {
                 }
             }
         }
-        adb = AdbCore(app, Preferences(app), hooks)
+        adb = ShizukuSession(app, Preferences(app), hooks)
         return adb
     }
 
-    private class Preferences(private val context: Context) : AdbPreferenceStore {
+    private class Preferences(private val context: Context) : ShizukuPreferences {
         private val prefs = SeqAdbPreferences(context)
-        override fun enabled(option: AdbOption) = when (option) {
-            AdbOption.AUTO_PAIR -> prefs.autoPairCode
-            AdbOption.WATCHDOG -> prefs.watchdog
-            AdbOption.START_ON_BOOT -> prefs.startOnBoot
-            AdbOption.RESTORE_AFTER_RESTART -> prefs.restoreAfterRestart
-            AdbOption.TCP_5555 -> prefs.tcpMode
+        override fun enabled(option: ShizukuOption) = when (option) {
+            ShizukuOption.AUTO_PAIR -> prefs.autoPairCode
+            ShizukuOption.WATCHDOG -> prefs.watchdog
+            ShizukuOption.START_ON_BOOT -> prefs.startOnBoot
+            ShizukuOption.RESTORE_AFTER_RESTART -> prefs.restoreAfterRestart
+            ShizukuOption.TCP_5555 -> prefs.tcpMode
         }
-        override fun setEnabled(option: AdbOption, enabled: Boolean) {
+        override fun setEnabled(option: ShizukuOption, enabled: Boolean) {
             when (option) {
-                AdbOption.AUTO_PAIR -> prefs.autoPairCode = enabled
-                AdbOption.WATCHDOG -> prefs.watchdog = enabled
-                AdbOption.START_ON_BOOT -> prefs.startOnBoot = enabled
-                AdbOption.RESTORE_AFTER_RESTART -> prefs.restoreAfterRestart = enabled
-                AdbOption.TCP_5555 -> prefs.tcpMode = enabled
+                ShizukuOption.AUTO_PAIR -> prefs.autoPairCode = enabled
+                ShizukuOption.WATCHDOG -> prefs.watchdog = enabled
+                ShizukuOption.START_ON_BOOT -> prefs.startOnBoot = enabled
+                ShizukuOption.RESTORE_AFTER_RESTART -> prefs.restoreAfterRestart = enabled
+                ShizukuOption.TCP_5555 -> prefs.tcpMode = enabled
             }
-            if (option == AdbOption.WATCHDOG || option == AdbOption.START_ON_BOOT)
+            if (option == ShizukuOption.WATCHDOG || option == ShizukuOption.START_ON_BOOT)
                 SeqAdbRecoveryWorker.reconcile(context)
         }
         override fun manuallyStopped() = prefs.manuallyStopped

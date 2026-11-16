@@ -5,10 +5,10 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.SystemClock
 import com.n2k02.seq.audio.SeqRuntime
-import dev.n2k02.adb.core.AdbCore
-import dev.n2k02.adb.core.AdbOption
-import dev.n2k02.adb.core.AdbState
-import dev.n2k02.adb.core.AdbTransportMode
+import com.n2k02.seq.shizuku.ShizukuSession
+import com.n2k02.seq.shizuku.ShizukuOption
+import com.n2k02.seq.shizuku.ShizukuState
+import com.n2k02.seq.shizuku.ShizukuTransportMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,23 +73,23 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
 
     private val app = context.applicationContext
     val preferences = SeqAdbPreferences(app)
-    val sharedCore: AdbCore = SharedAdbHostAdapter.core(app)
+    val sharedCore: ShizukuSession = ShizukuHostAdapter.core(app)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var observer: Job? = null
     @Volatile private var lastPlayerProbeAt = 0L
     @Volatile private var visible = false
     @Volatile private var shutDown = false
 
-    private fun snapshot(s: AdbState): AdbDiagnosticState {
+    private fun snapshot(s: ShizukuState): AdbDiagnosticState {
         val mode = when (s.transport) {
-            AdbTransportMode.WIRELESS_TLS -> "Wireless TLS"
-            AdbTransportMode.LOCAL_TCP_5555 -> "Local TCP/5555"
-            AdbTransportMode.SHIZUKU -> "Shizuku"
-            AdbTransportMode.NONE -> "None"
+            ShizukuTransportMode.WIRELESS_TLS -> "Wireless TLS"
+            ShizukuTransportMode.LOCAL_TCP_5555 -> "Local TCP/5555"
+            ShizukuTransportMode.SHIZUKU -> "Shizuku"
+            ShizukuTransportMode.NONE -> "None"
         }
         return state.value.copy(
-            busy = s.phase == dev.n2k02.adb.core.AdbPhase.CONNECTING ||
-                s.phase == dev.n2k02.adb.core.AdbPhase.PAIRING,
+            busy = s.phase == com.n2k02.seq.shizuku.ShizukuPhase.CONNECTING ||
+                s.phase == com.n2k02.seq.shizuku.ShizukuPhase.PAIRING,
             message = s.message,
             scanning = s.scanning,
             pairingPort = s.pairingPort,
@@ -141,17 +141,17 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
             scope.launch { sharedCore.retry(auto = true) }
     }
 
-    fun setAutoPairCode(enabled: Boolean) { scope.launch { sharedCore.setOption(AdbOption.AUTO_PAIR, enabled) } }
-    fun setTcpMode(enabled: Boolean) { scope.launch { sharedCore.setOption(AdbOption.TCP_5555, enabled) } }
+    fun setAutoPairCode(enabled: Boolean) { scope.launch { sharedCore.setOption(ShizukuOption.AUTO_PAIR, enabled) } }
+    fun setTcpMode(enabled: Boolean) { scope.launch { sharedCore.setOption(ShizukuOption.TCP_5555, enabled) } }
     fun setStartOnBoot(enabled: Boolean) {
-        scope.launch { sharedCore.setOption(AdbOption.START_ON_BOOT, enabled) }
+        scope.launch { sharedCore.setOption(ShizukuOption.START_ON_BOOT, enabled) }
     }
     fun setRestoreAfterRestart(enabled: Boolean) {
-        scope.launch { sharedCore.setOption(AdbOption.RESTORE_AFTER_RESTART, enabled) }
+        scope.launch { sharedCore.setOption(ShizukuOption.RESTORE_AFTER_RESTART, enabled) }
     }
     fun setAutomatic(enabled: Boolean) { preferences.automatic = enabled }
     fun setDiscovery(enabled: Boolean) { preferences.discoverWireless = enabled }
-    fun setWatchdog(enabled: Boolean) { scope.launch { sharedCore.setOption(AdbOption.WATCHDOG, enabled) } }
+    fun setWatchdog(enabled: Boolean) { scope.launch { sharedCore.setOption(ShizukuOption.WATCHDOG, enabled) } }
     fun setUseExistingTcp(enabled: Boolean) { preferences.preferExistingTcp = enabled }
     fun discover(userInitiated: Boolean) {
         scope.launch { sharedCore.retry(auto = !userInitiated) }
@@ -430,7 +430,7 @@ class LocalAdbDiagnostics(context: Context, registerAsActive: Boolean = true) {
         SeqAdbRecoveryWorker.cancelAll(app)
         leavePage()
         withContext(NonCancellable) {
-            SharedAdbHostAdapter.shutdown()
+            ShizukuHostAdapter.shutdown()
             observer?.cancel()
             observer = null
             if (active === this@LocalAdbDiagnostics) active = null

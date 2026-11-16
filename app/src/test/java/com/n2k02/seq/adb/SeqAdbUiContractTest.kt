@@ -52,6 +52,6 @@ class SeqAdbUiContractTest {
    val facade=source("adb/LocalAdbDiagnostics.kt")
    assertTrue(ui.contains("adb.shutdownAndAwait()"))
    assertTrue(facade.contains("SeqAdbRecoveryWorker.cancelAll(app)"))
-   assertTrue(facade.contains("SharedAdbHostAdapter.shutdown()"))
+   assertTrue(facade.contains("ShizukuHostAdapter.shutdown()"))
  }
 }

@@ -1,4 +1,4 @@
-package dev.n2k02.adb.core
+package com.n2k02.seq.shizuku
 
 import android.os.Binder
 import android.os.Parcel
@@ -54,7 +54,7 @@ class ShizukuShellService : Binder() {
     }
 
     companion object {
-        const val DESCRIPTOR = "dev.n2k02.adb.core.ShizukuShellService"
+        const val DESCRIPTOR = "com.n2k02.seq.shizuku.ShizukuShellService"
         const val TRANSACTION_EXEC = FIRST_CALL_TRANSACTION + 1
         const val MAX_COMMAND_CHARS = 16384
         const val MAX_OUTPUT_BYTES = 4 * 1024 * 1024

@@ -21,7 +21,7 @@ class AdbIdentityLifecycleTest {
     assertArrayEquals(first.encoded,second.encoded)
   }
   @Test fun sharedWireReusesExistingPersistedIdentity() {
-    val factory=source("SharedAdbHostAdapter.kt")
+    val factory=source("ShizukuHostAdapter.kt")
     assertTrue(factory.contains("AdbIdentity.getOrCreate(ctx)"))
     assertTrue(factory.contains("CoreIdentity(old.privateKey, old.certificate)"))
     assertTrue(factory.contains("LibAdbWire(app, AdbIdentitySource"))
@@ -29,7 +29,7 @@ class AdbIdentityLifecycleTest {
   }
   @Test fun onlySharedCoreRetiresSessions() {
     val transport=source("AdbTransport.kt")
-    assertTrue(transport.contains("SharedAdbHostAdapter.current()?.disconnectIdle()"))
+    assertTrue(transport.contains("ShizukuHostAdapter.current()?.disconnectIdle()"))
     assertTrue(transport.contains("execVerified(command, timeoutMs)"))
     assertFalse(transport.contains("mgr.disconnect()"))
   }

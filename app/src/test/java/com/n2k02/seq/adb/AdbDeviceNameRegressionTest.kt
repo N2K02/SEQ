@@ -13,7 +13,7 @@ import org.junit.Test
 class AdbDeviceNameRegressionTest {
     private fun root(): File =
         generateSequence(File(System.getProperty("user.dir")).canonicalFile) { it.parentFile }
-            .first { it.resolve("app/build.gradle.kts").isFile && it.resolve("app/src/main/java/com/n2k02/seq/adb/SharedAdbHostAdapter.kt").isFile }
+            .first { it.resolve("app/build.gradle.kts").isFile && it.resolve("app/src/main/java/com/n2k02/seq/adb/ShizukuHostAdapter.kt").isFile }
 
     @Test fun allAdbDependenciesPinFixedLibrary() {
         val root = root()
@@ -22,11 +22,11 @@ class AdbDeviceNameRegressionTest {
         assertFalse(app.contains("dev.n2k02:adb-core:0.1.4"))
         
         // Resolving the class ensures the unit-test runtime includes the shared transport.
-        assertTrue(Class.forName("dev.n2k02.adb.core.LibAdbWire").name.endsWith("LibAdbWire"))
+        assertTrue(Class.forName("com.n2k02.seq.shizuku.LibAdbWire").name.endsWith("LibAdbWire"))
     }
 
     @Test fun appUsesSharedTransportWithExplicitIdentityInsteadOfAnAnonymousRecursiveGetter() {
-        val adapter = root().resolve("app/src/main/java/com/n2k02/seq/adb/SharedAdbHostAdapter.kt").readText()
+        val adapter = root().resolve("app/src/main/java/com/n2k02/seq/adb/ShizukuHostAdapter.kt").readText()
         assertTrue(adapter.contains("LibAdbWire"))
         assertFalse(adapter.contains("override fun getDeviceName()"))
         assertFalse(adapter.contains("AbsAdbConnectionManager()"))

@@ -1,19 +1,19 @@
 package com.n2k02.seq.adb
 
 import android.content.Context
-import dev.n2k02.adb.core.AdbCore
-import dev.n2k02.adb.core.AdbOption
-import dev.n2k02.adb.core.AdbTransportMode
+import com.n2k02.seq.shizuku.ShizukuSession
+import com.n2k02.seq.shizuku.ShizukuOption
+import com.n2k02.seq.shizuku.ShizukuTransportMode
 import kotlinx.coroutines.CancellationException
 
 /** Legacy SEQ call-site API; ALL ADB I/O is shared and verifies UID 2000. */
 object AdbTransport {
     const val LOOPBACK = "127.0.0.1"
     const val LEGACY_TCP_PORT = 5555
-    val isConnected: Boolean get() = SharedAdbHostAdapter.current()?.state?.value?.connected == true
+    val isConnected: Boolean get() = ShizukuHostAdapter.current()?.state?.value?.connected == true
     val lastKnownConnected: Boolean get() = isConnected
     fun localTcpListenerPresent(): Boolean = false // No ADB TCP listener in Shizuku-only mode
-    private fun core(): AdbCore = checkNotNull(SharedAdbHostAdapter.current()) {
+    private fun core(): ShizukuSession = checkNotNull(ShizukuHostAdapter.current()) {
         "SEQ ADB shared core not initialized; legacy transport fallback forbidden"
     }
 
@@ -41,7 +41,7 @@ object AdbTransport {
         require(host == LOOPBACK && port == LEGACY_TCP_PORT)
         val adb = core()
         check(adb.retry(auto = true) &&
-            adb.state.value.transport == AdbTransportMode.LOCAL_TCP_5555)
+            adb.state.value.transport == ShizukuTransportMode.LOCAL_TCP_5555)
         Result.success(Unit)
     } catch (cancelled: CancellationException) {
         throw cancelled
@@ -49,9 +49,9 @@ object AdbTransport {
 
     suspend fun switchToTcpip(): Result<Unit> = try {
         val adb = core()
-        adb.setOption(AdbOption.TCP_5555, true)
+        adb.setOption(ShizukuOption.TCP_5555, true)
         check(adb.retry() &&
-            adb.state.value.transport == AdbTransportMode.LOCAL_TCP_5555)
+            adb.state.value.transport == ShizukuTransportMode.LOCAL_TCP_5555)
         Result.success(Unit)
     } catch (cancelled: CancellationException) {
         throw cancelled
@@ -65,6 +65,6 @@ object AdbTransport {
     } catch (e: Exception) { Result.failure(e) }
 
     /** Diagnostic/worker close is not a user-requested Stop. */
-    suspend fun disconnect() { SharedAdbHostAdapter.current()?.disconnectIdle() }
+    suspend fun disconnect() { ShizukuHostAdapter.current()?.disconnectIdle() }
     suspend fun close() = disconnect()
 }
