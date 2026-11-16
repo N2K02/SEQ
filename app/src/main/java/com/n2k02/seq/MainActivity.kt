@@ -67,14 +67,13 @@ private val accent: Color @Composable get() = MaterialTheme.colorScheme.primary
 private val background: Color @Composable get() = MaterialTheme.colorScheme.background
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
-  HOME("Equalizer"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"), SHIZUKU("ADB"), AUDIO_DIAGNOSTICS("Audio diagnostics"),
+  HOME("Equalizer"), SETTINGS("Settings"), SHIZUKU("ADB"), AUDIO_DIAGNOSTICS("Audio diagnostics"),
   UPDATES("Updates")
 }
 
 private fun pageIcon(page:Page):ImageVector = when(page) {
   Page.HOME -> Icons.Rounded.Home
   Page.SETTINGS -> Icons.Rounded.Settings
-  Page.ADB_CONNECTION -> Icons.Rounded.SettingsInputAntenna
   Page.SHIZUKU -> Icons.Rounded.SettingsInputAntenna
   Page.AUDIO_DIAGNOSTICS -> Icons.Rounded.GraphicEq
   Page.UPDATES -> Icons.Rounded.SystemUpdate
@@ -163,8 +162,8 @@ class MainActivity : ComponentActivity() {
         page = Page.SETTINGS
       }
       DisposableEffect(page) {
-        if(page==Page.ADB_CONNECTION || page==Page.AUDIO_DIAGNOSTICS) adb.enterPage()
-        onDispose { if(page==Page.ADB_CONNECTION || page==Page.AUDIO_DIAGNOSTICS) adb.leavePage() }
+        if(page==Page.AUDIO_DIAGNOSTICS) adb.enterPage()
+        onDispose { if(page==Page.AUDIO_DIAGNOSTICS) adb.leavePage() }
       }
       val updateStatus by SeqUpdater.controller.status.collectAsState()
       val experimentalEnabled by SeqUpdater.experimentalEnabled.collectAsState()
@@ -433,11 +432,6 @@ class MainActivity : ComponentActivity() {
                     Icons.Rounded.SystemUpdate, showUpdateBadge=true, updateStatus=updateStatus) { page = Page.UPDATES }
                 }
                 Page.SHIZUKU -> ShizukuSettingsPage()
-                Page.ADB_CONNECTION -> SeqAdbConnectionScreen(
-                  context = this@MainActivity,
-                  adb = adb,
-                  permissionRevision = permissionRevision
-                )
                 Page.AUDIO_DIAGNOSTICS -> SeqAudioDiagnosticsScreen(
                   context = this@MainActivity,
                   adb = adb
