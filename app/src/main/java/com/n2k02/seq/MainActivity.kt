@@ -67,7 +67,7 @@ private val accent: Color @Composable get() = MaterialTheme.colorScheme.primary
 private val background: Color @Composable get() = MaterialTheme.colorScheme.background
 private val quiet: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 private enum class Page(val title: String) {
-  HOME("Equalizer"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"), SHIZUKU("Shizuku"), AUDIO_DIAGNOSTICS("Audio diagnostics"),
+  HOME("Equalizer"), SETTINGS("Settings"), ADB_CONNECTION("ADB connection"), SHIZUKU("ADB"), AUDIO_DIAGNOSTICS("Audio diagnostics"),
   UPDATES("Updates")
 }
 
@@ -423,11 +423,8 @@ class MainActivity : ComponentActivity() {
                         onCheckedChange = { on -> update(settings.copy(leveler = on)) })
                     }
                   }
-                  MenuRow("Shizuku", "LocalADB server and permission status", Icons.Rounded.SettingsInputAntenna) {
+                  MenuRow("ADB", "LocalADB connection and permission status", Icons.Rounded.SettingsInputAntenna) {
                     page = Page.SHIZUKU
-                  }
-                  MenuRow("ADB connection", "Optional connection and recovery", Icons.Rounded.SettingsInputAntenna) {
-                    page = Page.ADB_CONNECTION
                   }
                   MenuRow("Audio diagnostics", "Player tracking, audio effects and PCM compatibility",
                     Icons.Rounded.GraphicEq) { page = Page.AUDIO_DIAGNOSTICS }
