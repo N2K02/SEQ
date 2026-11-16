@@ -18,7 +18,7 @@ class AdbDeviceNameRegressionTest {
     @Test fun allAdbDependenciesPinFixedLibrary() {
         val root = root()
         val app = root.resolve("app/build.gradle.kts").readText()
-        assertTrue(app.contains("dev.n2k02:adb-core:0.1.7"))
+        assertTrue(app.contains("dev.n2k02:adb-core:0.1.8"))
         assertFalse(app.contains("dev.n2k02:adb-core:0.1.4"))
         
         // Resolving the class ensures the unit-test runtime includes the shared transport.
