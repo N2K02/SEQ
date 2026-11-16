@@ -12,7 +12,7 @@ object AdbTransport {
     const val LEGACY_TCP_PORT = 5555
     val isConnected: Boolean get() = SharedAdbHostAdapter.current()?.state?.value?.connected == true
     val lastKnownConnected: Boolean get() = isConnected
-    fun localTcpListenerPresent(): Boolean = AdbCore.localListenerAvailable()
+    fun localTcpListenerPresent(): Boolean = false // No ADB TCP listener in Shizuku-only mode
     private fun core(): AdbCore = checkNotNull(SharedAdbHostAdapter.current()) {
         "SEQ ADB shared core not initialized; legacy transport fallback forbidden"
     }
