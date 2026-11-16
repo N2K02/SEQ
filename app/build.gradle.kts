@@ -55,7 +55,6 @@ dependencies {
   implementation("androidx.compose.material3:material3:1.5.0-beta02")
   implementation("dev.n2k02:theme:0.1.4")
   implementation("dev.n2k02:updater:0.1.36")
-  implementation("dev.n2k02:adb-core:0.1.8")
   implementation("dev.rikka.shizuku:api:13.1.5")
   implementation("dev.rikka.shizuku:provider:13.1.5")
   implementation("androidx.compose.material:material-icons-extended")
@@ -66,7 +65,6 @@ dependencies {
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
   implementation("androidx.work:work-runtime-ktx:2.10.5")
   // Direct localhost ADB; no Shizuku runtime or daemon.
-  implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
   implementation("org.bouncycastle:bcprov-jdk15to18:1.81")
   implementation("org.bouncycastle:bcpkix-jdk15to18:1.81")
   implementation("org.conscrypt:conscrypt-android:2.7.0")
