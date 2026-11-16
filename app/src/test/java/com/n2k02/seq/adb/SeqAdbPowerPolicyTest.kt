@@ -18,7 +18,7 @@ class SeqAdbPowerPolicyTest {
  @Test fun tcpPromotionAndUidVerificationAreInSharedCore() {
    val transport=source("AdbTransport.kt")
    assertTrue(transport.contains("localTcpListenerPresent(): Boolean = false"))
-   assertTrue(transport.contains("ShizukuTransportMode.LOCAL_TCP_5555"))
+   assertTrue(transport.contains("Shizuku never opens TCP/5555"))
    assertFalse(source("ShizukuHostAdapter.kt").contains("LibAdbWire"))
    assertTrue(transport.contains("core().execVerified(command, timeoutMs)"))
    assertFalse(source("LocalAdbDiagnostics.kt").contains("switchToTcpip()"))
