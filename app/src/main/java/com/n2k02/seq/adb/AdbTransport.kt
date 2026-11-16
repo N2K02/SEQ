@@ -2,69 +2,64 @@ package com.n2k02.seq.adb
 
 import android.content.Context
 import com.n2k02.seq.shizuku.ShizukuSession
-import com.n2k02.seq.shizuku.ShizukuOption
-import com.n2k02.seq.shizuku.ShizukuTransportMode
 import kotlinx.coroutines.CancellationException
 
-/** Legacy SEQ call-site API; ALL ADB I/O is shared and verifies UID 2000. */
+/** SEQ command facade through the per-app authorized Shizuku user service.
+ * The historical method names are retained for callers, never for actual ADB sockets.
+ */
 object AdbTransport {
     const val LOOPBACK = "127.0.0.1"
     const val LEGACY_TCP_PORT = 5555
+
     val isConnected: Boolean get() = ShizukuHostAdapter.current()?.state?.value?.connected == true
     val lastKnownConnected: Boolean get() = isConnected
-    fun localTcpListenerPresent(): Boolean = false // No ADB TCP listener in Shizuku-only mode
+    fun localTcpListenerPresent(): Boolean = false
+
     private fun core(): ShizukuSession = checkNotNull(ShizukuHostAdapter.current()) {
-        "SEQ ADB shared core not initialized; legacy transport fallback forbidden"
+        "Shizuku shell session has not been initialized"
     }
 
     suspend fun exec(command: String, timeoutMs: Long = 15_000): Result<String> = try {
         Result.success(core().execVerified(command, timeoutMs))
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (e: Exception) { Result.failure(e) }
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
 
-    suspend fun pairLocal(context: Context, port: Int, code: String): Result<Unit> = try {
-        check(core().pair(port, code)) { "ADB pairing failed" }
-        Result.success(Unit)
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (e: Exception) { Result.failure(e) }
+    suspend fun pairLocal(context: Context, port: Int, code: String): Result<Unit> =
+        Result.failure(UnsupportedOperationException("Shizuku uses per-app authorization, not pairing"))
 
     suspend fun connectLocalTls(context: Context, port: Int): Result<Unit> = try {
-        check(core().connectTls(port)) { "ADB TLS failed" }
+        check(ShizukuHostAdapter.core(context).retry(auto = true)) {
+            "Authorize SEQ using the running LocalADB Shizuku service"
+        }
         Result.success(Unit)
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (e: Exception) { Result.failure(e) }
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
 
     suspend fun connect(context: Context, host: String, port: Int): Result<Unit> = try {
         require(host == LOOPBACK && port == LEGACY_TCP_PORT)
-        val adb = core()
-        check(adb.retry(auto = true) &&
-            adb.state.value.transport == ShizukuTransportMode.LOCAL_TCP_5555)
+        check(ShizukuHostAdapter.core(context).retry(auto = true)) {
+            "Shizuku shell permission is required"
+        }
         Result.success(Unit)
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (e: Exception) { Result.failure(e) }
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
 
-    suspend fun switchToTcpip(): Result<Unit> = try {
-        val adb = core()
-        adb.setOption(ShizukuOption.TCP_5555, true)
-        check(adb.retry() &&
-            adb.state.value.transport == ShizukuTransportMode.LOCAL_TCP_5555)
-        Result.success(Unit)
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (e: Exception) { Result.failure(e) }
+    suspend fun switchToTcpip(): Result<Unit> =
+        Result.failure(UnsupportedOperationException("Shizuku never opens TCP/5555"))
 
-    suspend fun switchToUsb(): Result<Unit> = try {
-        check(core().disableTcp())
-        Result.success(Unit)
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (e: Exception) { Result.failure(e) }
+    suspend fun switchToUsb(): Result<Unit> =
+        Result.failure(UnsupportedOperationException("Shizuku cannot toggle USB debugging"))
 
-    /** Diagnostic/worker close is not a user-requested Stop. */
+    /** A diagnostic cleanup must not revoke another component's Shizuku authorization. */
     suspend fun disconnect() { ShizukuHostAdapter.current()?.disconnectIdle() }
     suspend fun close() = disconnect()
 }
