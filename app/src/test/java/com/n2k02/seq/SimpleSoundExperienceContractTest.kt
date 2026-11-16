@@ -50,7 +50,8 @@ class SimpleSoundExperienceContractTest {
     assertFalse(main.contains("Page.ADVANCED_AUDIO"))
     assertFalse(main.contains("Page.SIGNAL_PATH"))
     assertFalse(main.contains("Page.DEVICE_PROFILES"))
-    assertTrue(main.contains("Page.ADB_CONNECTION"))
+    assertTrue(main.contains("Page.SHIZUKU"))
+    assertFalse(main.contains("Page.ADB_CONNECTION"))
     assertTrue(main.contains("Page.UPDATES"))
   }
 }

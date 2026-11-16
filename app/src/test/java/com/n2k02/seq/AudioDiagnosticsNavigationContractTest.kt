@@ -14,17 +14,14 @@ class AudioDiagnosticsNavigationContractTest {
         assertTrue(source.contains("AUDIO_DIAGNOSTICS(\"Audio diagnostics\")"))
         assertTrue(source.contains("page = Page.AUDIO_DIAGNOSTICS"))
         assertTrue(source.contains("Page.AUDIO_DIAGNOSTICS -> SeqAudioDiagnosticsScreen("))
-        assertTrue(source.contains("Page.ADB_CONNECTION -> SeqAdbConnectionScreen("))
+        assertTrue(source.contains("Page.SHIZUKU -> ShizukuSettingsPage()"))
     }
 
     @Test fun adbConnectionContainsOnlySharedAdbConnectionSettings() {
-        val source = File(root, "SeqAdbDiagnosticsScreen.kt").readText()
-        val connection = source.substringAfter("internal fun SeqAdbConnectionScreen(")
-            .substringBefore("internal fun SeqAudioDiagnosticsScreen(")
-        assertTrue(connection.contains("AdbConnectionSettingsPage("))
-        assertFalse(connection.contains("Inspect audio players"))
+        val connection = File(root, "ShizukuSettingsPage.kt").readText()
+        assertTrue(connection.contains("Shizuku.checkSelfPermission()"))
+        assertFalse(connection.contains("AdbConnectionSettingsPage("))
         assertFalse(connection.contains("Test third-party PCM capture"))
-        assertFalse(connection.contains("Request DUMP via ADB"))
     }
 
     @Test fun audioDiagnosticsKeepsAllActions() {

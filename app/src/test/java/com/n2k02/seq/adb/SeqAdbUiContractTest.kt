@@ -12,10 +12,10 @@ class SeqAdbUiContractTest {
  }
  @Test fun coreRendersBothConnectionCardsWithNoDuplicateUi() {
    val screens=source("SeqAdbDiagnosticsScreen.kt")
-   assertTrue(screens.contains("AdbConnectionSettingsPage("))
-   assertTrue(screens.contains("AdbDiagnosticsPage("))
-   assertTrue(screens.contains("adb.sharedCore"))
-   assertTrue(screens.contains("SeqPairingAccessibilityService.isEnabled(context)"))
+   assertTrue(screens.contains("ShizukuSettingsPage()"))
+   assertTrue(screens.contains("SeqAudioDiagnosticsScreen("))
+   assertTrue(screens.contains("adb.state.collectAsState()"))
+   assertFalse(screens.contains("AdbConnectionSettingsPage("))
    assertFalse(screens.contains("AdbSettingToggle("))
    assertFalse(screens.contains("OutlinedTextField"))
    assertFalse(screens.contains("Pairing & recovery"))
@@ -26,7 +26,7 @@ class SeqAdbUiContractTest {
    val ui=source("MainActivity.kt")
    assertFalse(ui.contains("Page.DIAGNOSTICS"))
    assertFalse(ui.contains("MenuRow(\"Diagnostics\""))
-   assertTrue(ui.contains("Page.ADB_CONNECTION -> SeqAdbConnectionScreen("))
+   assertTrue(ui.contains("Page.SHIZUKU -> ShizukuSettingsPage()"))
    assertTrue(ui.contains("val adbState by adb.sharedCore.state.collectAsState()"))
    assertTrue(ui.contains("if (adbState.connected) Text(\"ADB connected\""))
    assertFalse(ui.contains("AdbHomeSetupPage("))
@@ -42,8 +42,8 @@ class SeqAdbUiContractTest {
  }
  @Test fun pairingReaderDelegatesSettingsOnlyPolicyToCore() {
    val reader=source("adb/SeqPairingAccessibilityService.kt")
-   assertTrue(reader.contains("SharedAdbPairingAccessibilityService()"))
-   assertTrue(reader.contains("override fun acquireCore()"))
+   assertTrue(reader.contains("AccessibilityService()"))
+   assertFalse(reader.contains("override fun acquireCore()"))
    assertFalse(reader.contains("rootInActiveWindow"))
    assertFalse(reader.contains("performAction("))
  }
