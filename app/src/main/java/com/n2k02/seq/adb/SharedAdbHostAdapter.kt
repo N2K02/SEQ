@@ -5,12 +5,8 @@ import android.content.pm.PackageManager
 import dev.n2k02.adb.core.AdbCore
 import dev.n2k02.adb.core.AdbCoreRegistry
 import dev.n2k02.adb.core.AdbHostHooks
-import dev.n2k02.adb.core.AdbIdentity as CoreIdentity
-import dev.n2k02.adb.core.AdbIdentitySource
 import dev.n2k02.adb.core.AdbOption
 import dev.n2k02.adb.core.AdbPreferenceStore
-import dev.n2k02.adb.core.LibAdbWire
-import dev.n2k02.adb.core.LocalAdbDiscovery
 
 /** SEQ supplies its legacy identity/preferences, never a second ADB transport. */
 internal object SharedAdbHostAdapter {
@@ -49,13 +45,7 @@ internal object SharedAdbHostAdapter {
                 }
             }
         }
-        adb = AdbCore(
-            LibAdbWire(app, AdbIdentitySource { ctx ->
-                val old = AdbIdentity.getOrCreate(ctx)
-                CoreIdentity(old.privateKey, old.certificate)
-            }, "SEQ"),
-            Preferences(app), LocalAdbDiscovery(app), hooks
-        )
+        adb = AdbCore(app, Preferences(app), hooks)
         return adb
     }
 
