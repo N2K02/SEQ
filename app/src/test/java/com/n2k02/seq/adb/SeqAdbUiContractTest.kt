@@ -41,11 +41,8 @@ class SeqAdbUiContractTest {
    assertTrue(prefs.contains("getBoolean(\"restore_after_restart\",false)"))
  }
  @Test fun pairingReaderDelegatesSettingsOnlyPolicyToCore() {
-   val reader=source("adb/SeqPairingAccessibilityService.kt")
-   assertTrue(reader.contains("AccessibilityService()"))
-   assertFalse(reader.contains("override fun acquireCore()"))
-   assertFalse(reader.contains("rootInActiveWindow"))
-   assertFalse(reader.contains("performAction("))
+   val manifest=source("../../../main/AndroidManifest.xml")
+   assertFalse(manifest.contains("SeqPairingAccessibilityService"))
  }
  @Test fun quitAwaitedBeforeFinishingActivity() {
    val ui=source("MainActivity.kt")

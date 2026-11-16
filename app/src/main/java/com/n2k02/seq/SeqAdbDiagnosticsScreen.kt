@@ -25,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.n2k02.seq.adb.LocalAdbDiagnostics
 import com.n2k02.seq.audio.SeqEffectCapabilities
-import com.n2k02.seq.adb.SeqPairingAccessibilityService
 
 /** Canonical shared diagnostics first, with SEQ-specific audio detail only. */
 @Composable
@@ -38,12 +37,6 @@ internal fun SeqAdbDiagnosticsScreen(adb: LocalAdbDiagnostics) {
             Text(state.details, style = MaterialTheme.typography.bodySmall)
         }
     }
-}
-
-/** Exactly the same two ADB Settings cards and five switches as all other apps. */
-@Composable
-internal fun SeqAdbConnectionScreen(context: Context, adb: LocalAdbDiagnostics, permissionRevision: Int) {
-    ShizukuSettingsPage()
 }
 
 /** Read-only and explicitly user-triggered audio diagnostics, separate from ADB setup. */
