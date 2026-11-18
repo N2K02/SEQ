@@ -34,8 +34,7 @@ object SeqUpdater {
     config=UpdateConfig(
       repository="N2K02/SEQ",packageName=app.packageName,
       installedVersionCode=currentVersion(),
-      experimentalEnabled=experimentalEnabled.value
-    ),
+      experimentalEnabled=experimentalEnabled.value, releaseTrack = "adb"),
     offerPreferences=prefs()
   )
   val controller:UpdaterController get()=requireNotNull(instance)
