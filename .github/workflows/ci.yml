@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: seq-build-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || 'main' }}
+  group: seq-build-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -84,7 +84,7 @@ jobs:
           TRACK_LAST="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName -q '.[].tagName' | sed -nE 's/^shizuku-v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)"
           LOCAL="$(git tag -l 'v[0-9]*' | sed -nE 's/^v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)"
           BASE="0.3"
-          LAST="$(printf '%s\n%s\n%s\n' "$BASE" "${PUBLIC#v}" "$LOCAL" "$TRACK_LAST" | grep -E '^[0-9]+[.][0-9]$' | sort -V | tail -1)"
+          LAST="$(printf '%s\n%s\n%s\n%s\n' "$BASE" "${PUBLIC#v}" "$LOCAL" "$TRACK_LAST" | grep -E '^[0-9]+[.][0-9]$' | sort -V | tail -1)"
           python3 scripts/release_policy.py --channel "$CHANNEL" \
             --previous "$LAST" --requested "${REQUESTED_VERSION:-}" \
             --run "$GITHUB_RUN_NUMBER" --pr "${PR_NUMBER:-1}" \
