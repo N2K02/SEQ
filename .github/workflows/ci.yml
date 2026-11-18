@@ -2,9 +2,9 @@ name: SEQ Build APK (mRadio parity)
 
 on:
   push:
-    branches: [main]
+    branches: [main-shizuku]
   pull_request:
-    branches: [main]
+    branches: [main-shizuku]
     types: [opened, synchronize, reopened]
   pull_request_target:
     types: [closed]
@@ -19,17 +19,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: seq-build-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || 'main' }}
+  group: seq-build-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 env:
   APP: SEQ
+  RELEASE_TRACK: shizuku
   BUILD_COMMIT: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
 
 jobs:
   android:
     name: Android unit tests, lint and R8 validation
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request_target' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.title, '[skip ci]')))
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request_target' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main-shizuku' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.title, '[skip ci]')))
     runs-on: ubuntu-latest
     env:
       N2K02_PACKAGES_USER: N2K02
@@ -80,9 +81,10 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then CHANNEL=experimental; fi
           # Same as mRadio: use all public tags, not the first page of releases.
           PUBLIC="$(bash .github/scripts/latest-public-version.sh seq)"
+          TRACK_LAST="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName -q '.[].tagName' | sed -nE 's/^shizuku-v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)"
           LOCAL="$(git tag -l 'v[0-9]*' | sed -nE 's/^v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)"
           BASE="0.3"
-          LAST="$(printf '%s\n%s\n%s\n' "$BASE" "${PUBLIC#v}" "$LOCAL" | grep -E '^[0-9]+[.][0-9]$' | sort -V | tail -1)"
+          LAST="$(printf '%s\n%s\n%s\n%s\n' "$BASE" "${PUBLIC#v}" "$LOCAL" "$TRACK_LAST" | grep -E '^[0-9]+[.][0-9]$' | sort -V | tail -1)"
           python3 scripts/release_policy.py --channel "$CHANNEL" \
             --previous "$LAST" --requested "${REQUESTED_VERSION:-}" \
             --run "$GITHUB_RUN_NUMBER" --pr "${PR_NUMBER:-1}" \
@@ -101,6 +103,9 @@ jobs:
           # Stable must be installable over every earlier signed experimental APK.
           code=$(python3 .github/scripts/version_code.py "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER")
           sed -i "s/^SEQ_VERSION_CODE=.*/SEQ_VERSION_CODE=$code/" "$RUNNER_TEMP/seq-version.env"
+          sed -i "s/^SEQ_TAG=.*/SEQ_TAG=shizuku-v$(sed -n 's/^SEQ_VERSION=//p' "$RUNNER_TEMP/seq-version.env")/" "$RUNNER_TEMP/seq-version.env"
+          sed -i "s/^SEQ_APK_NAME=SEQ-/SEQ_APK_NAME=SEQ-SHIZUKU-/" "$RUNNER_TEMP/seq-version.env"
+          if [ "$CHANNEL" = "experimental" ]; then sed -i "s/^SEQ_TAG=.*/SEQ_TAG=experimental-shizuku-pr-${PR_NUMBER:-1}-run-$GITHUB_RUN_NUMBER/" "$RUNNER_TEMP/seq-version.env"; fi
           cat "$RUNNER_TEMP/seq-version.env" >> "$GITHUB_ENV"
           cat "$RUNNER_TEMP/seq-version.env" >> "$GITHUB_OUTPUT"
           echo "SEQ $CHANNEL from last stable $LAST; version $(grep SEQ_VERSION= "$RUNNER_TEMP/seq-version.env")"
@@ -211,7 +216,7 @@ jobs:
             CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
           else
             EXPECTED="$BUILD_COMMIT"
-            CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)"
+            CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/main-shizuku" --jq .commit.sha)"
           fi
           if [ "$CURRENT" != "$EXPECTED" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -289,13 +294,13 @@ jobs:
             TITLE="SEQ $VERSION-experimental.$EXPERIMENTAL_NUMBER"
             EXTRA=(--prerelease --latest=false)
           else
-            CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)"
+            CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/branches/main-shizuku" --jq .commit.sha)"
             test "$CURRENT" = "$BUILD_COMMIT" || {
               echo "::notice::main changed during build; not publishing older APK";exit 0;
             }
             TARGET="$BUILD_COMMIT"
             TITLE="SEQ $VERSION"
-            EXTRA=(--latest)
+            EXTRA=(--latest=false)
           fi
           git log -30 --no-merges --pretty='- %s' > "$RUNNER_TEMP/changes.txt"
           {
