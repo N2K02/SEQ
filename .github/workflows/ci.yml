@@ -312,7 +312,7 @@ jobs:
             }
             TARGET="$BUILD_COMMIT"
             TITLE="SEQ $VERSION"
-            EXTRA=(--latest=false)
+            EXTRA=(--latest=true)
           fi
           git log -30 --no-merges --pretty='- %s' > "$RUNNER_TEMP/changes.txt"
           {
@@ -329,7 +329,7 @@ jobs:
             if [ "$CHANNEL" = "stable" ]; then
               echo "::error::Stable tag already exists; use a higher stable version"; exit 1
             fi
-            gh release upload "$RELEASE_TAG" "$APK_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$APK_NAME"
           else
             gh release create "$RELEASE_TAG" "$APK_NAME" --repo "$GITHUB_REPOSITORY" \
               --target "$TARGET" --title "$TITLE" \
@@ -337,3 +337,14 @@ jobs:
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq '.assets[].name' | grep -Fxq "$APK_NAME"
+
+  download-index:
+    needs: publish
+    if: github.event_name == 'pull_request_target' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+    permissions:
+      contents: write
+    uses: N2K02/n2k02updater/.github/workflows/index-downloads.yml@ae58c3ce0196b1b30d214927dd529ce5d779febf
+    with:
+      legacy_from_tag: v0.7
+      legacy_adb_tag: adb-v0.9
+      legacy_adb_digest: sha256:9492b94ea37ded21c58cc4aeb7ec42d3b4f8e4ee9f5ce01353164bcdb0191b99
