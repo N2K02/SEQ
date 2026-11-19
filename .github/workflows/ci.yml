@@ -273,6 +273,17 @@ jobs:
           echo "APK_SIZE=$(stat -c%s "$APK_NAME")" >> "$GITHUB_ENV"
           # Redact both passphrases from the remainder of the job.
           unset RP OP
+      - name: Validate architecture-qualified release APK name
+        if: steps.gate.outputs.skip == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$APP-${RELEASE_TRACK^^}-$VERSION"
+          if [[ "$CHANNEL" == "experimental" ]]; then
+            [[ "$EXPERIMENTAL_NUMBER" =~ ^[0-9]+$ ]] || { echo "::error::Missing experimental sequence"; exit 1; }
+            expected="$expected-experimental.$EXPERIMENTAL_NUMBER"
+          fi
+          [[ "$APK_NAME" == "$expected.apk" ]] || { echo "::error::Wrong APK name: $APK_NAME (expected $expected.apk)"; exit 1; }
       - name: Upload signed APK (always preserve release artifact)
         if: steps.gate.outputs.skip == 'false'
         uses: actions/upload-artifact@v4
