@@ -6,14 +6,6 @@ on:
   pull_request:
     branches: [main-adb]
     types: [opened, synchronize, reopened]
-  pull_request_target:
-    types: [closed]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Stable version, one decimal (e.g. 1.0). Leave empty to increment 0.1.'
-        required: false
-        default: ''
 
 permissions:
   contents: read
@@ -25,12 +17,18 @@ concurrency:
 env:
   APP: SEQ
   RELEASE_TRACK: adb
-  BUILD_COMMIT: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+  BUILD_COMMIT: ${{ github.sha }}
 
 jobs:
+  stable-approval:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: N2K02/n2k02updater/.github/workflows/require-stable-merge.yml@cfbb69f4ac19cf6b24aea96f82cadf2144c29635
   android:
+    needs: stable-approval
     name: Android unit tests, lint and R8 validation
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request_target' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main-adb' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.title, '[skip ci]')))
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     env:
       N2K02_PACKAGES_USER: N2K02
@@ -47,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-java@v5
         with:
@@ -165,11 +163,7 @@ jobs:
   publish:
     name: Sign and publish stable or experimental (shared mRadio key)
     needs: [android]
-    if: >-
-      (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') &&
-      (github.event_name != 'pull_request' ||
-        github.event.pull_request.head.repo.full_name == github.repository) &&
-      needs.android.result == 'success'
+    if: needs.android.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -191,7 +185,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-java@v5
         with:
@@ -312,7 +306,7 @@ jobs:
             }
             TARGET="$BUILD_COMMIT"
             TITLE="SEQ $VERSION"
-            EXTRA=(--latest=false)
+            EXTRA=(--latest=true)
           fi
           git log -30 --no-merges --pretty='- %s' > "$RUNNER_TEMP/changes.txt"
           {
@@ -329,7 +323,7 @@ jobs:
             if [ "$CHANNEL" = "stable" ]; then
               echo "::error::Stable tag already exists; use a higher stable version"; exit 1
             fi
-            gh release upload "$RELEASE_TAG" "$APK_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$APK_NAME"
           else
             gh release create "$RELEASE_TAG" "$APK_NAME" --repo "$GITHUB_REPOSITORY" \
               --target "$TARGET" --title "$TITLE" \
@@ -337,3 +331,25 @@ jobs:
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq '.assets[].name' | grep -Fxq "$APK_NAME"
+
+  download-index:
+    needs: publish
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    permissions:
+      contents: write
+    uses: N2K02/n2k02updater/.github/workflows/index-downloads.yml@ae58c3ce0196b1b30d214927dd529ce5d779febf
+    with:
+      legacy_from_tag: v0.7
+      legacy_adb_tag: adb-v0.9
+      legacy_adb_digest: sha256:9492b94ea37ded21c58cc4aeb7ec42d3b4f8e4ee9f5ce01353164bcdb0191b99
+
+  seed-download-index:
+    needs: stable-approval
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: write
+    uses: N2K02/n2k02updater/.github/workflows/index-downloads.yml@ae58c3ce0196b1b30d214927dd529ce5d779febf
+    with:
+      legacy_from_tag: v0.7
+      legacy_adb_tag: adb-v0.9
+      legacy_adb_digest: sha256:9492b94ea37ded21c58cc4aeb7ec42d3b4f8e4ee9f5ce01353164bcdb0191b99
