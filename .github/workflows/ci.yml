@@ -329,7 +329,7 @@ jobs:
             if [ "$CHANNEL" = "stable" ]; then
               echo "::error::Stable tag already exists; use a higher stable version"; exit 1
             fi
-            gh release upload "$RELEASE_TAG" "$APK_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$APK_NAME"
           else
             gh release create "$RELEASE_TAG" "$APK_NAME" --repo "$GITHUB_REPOSITORY" \
               --target "$TARGET" --title "$TITLE" \
@@ -337,3 +337,10 @@ jobs:
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq '.assets[].name' | grep -Fxq "$APK_NAME"
+
+  download-index:
+    needs: publish
+    if: github.event_name == 'pull_request_target' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+    permissions:
+      contents: write
+    uses: N2K02/n2k02updater/.github/workflows/index-downloads.yml@ae58c3ce0196b1b30d214927dd529ce5d779febf
