@@ -1,0 +1,16 @@
+name: Group release downloads and preserve APKs
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/apk-retention.yml']
+  schedule:
+    - cron: '23,53 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  downloads:
+    uses: N2K02/n2k02updater/.github/workflows/group-downloads.yml@5ca31445255562f39f68fd2d0afa791d782105a4
