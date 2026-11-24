@@ -14,7 +14,7 @@ require(seqVersionCode == null || seqVersionCode in 1..2_100_000_000)
 require(seqExperimentalNumber == null || seqExperimentalNumber.matches(Regex("[1-9][0-9]*")))
 android {
   namespace = "com.n2k02.seq"
-  compileSdk = 37
+  compileSdk { version = release(37) { minorApiLevel = 2 } }
   defaultConfig {
     applicationId = "com.n2k02.seq"
     minSdk = 29
@@ -49,12 +49,12 @@ android {
 }
 dependencies {
   implementation("androidx.car.app:app:1.7.0")
-  val composeBom = platform("androidx.compose:compose-bom:2025.12.00")
+  val composeBom = platform("androidx.compose:compose-bom:2026.11.01")
   implementation(composeBom)
   implementation("androidx.activity:activity-compose:1.12.4")
-  implementation("androidx.compose.material3:material3:1.5.0-beta02")
-  implementation("dev.n2k02:theme:0.1.4")
-  implementation("dev.n2k02:updater:0.1.38")
+  implementation("androidx.compose.material3:material3:1.6.0-alpha01")
+  implementation("dev.n2k02:theme:0.1.15")
+  implementation("dev.n2k02:updater:0.1.39")
   implementation("dev.rikka.shizuku:api:13.1.5")
   implementation("dev.rikka.shizuku:provider:13.1.5")
   implementation("androidx.compose.material:material-icons-extended")
