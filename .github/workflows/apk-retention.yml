@@ -119,3 +119,26 @@ jobs:
                   attach(adb[1], shizuku[1], shizuku[2], "shizuku")
                   attach(shizuku[1], adb[1], adb[2], "adb")
           PYTHON
+
+  remove-stray-releases:
+    # One-time cleanup, runs when this workflow file is merged (or run by hand). Removes the two
+    # main-line experimental builds that do not belong to either track (ADB or Shizuku).
+    # Idempotent: a missing release is skipped.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Delete stray main-line experimental releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tag in experimental-pr-10-run-344 experimental-pr-10-run-345; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+              echo "Deleted $tag"
+            else
+              echo "$tag already removed"
+            fi
+          done
