@@ -96,7 +96,7 @@ class SystemEqCurveTest {
   @Test fun invalidStoredManualCurvesFallBackToAuto() {
     assertNull(SystemEqCurveBuilder.parseManual(null))
     assertNull(SystemEqCurveBuilder.parseManual("0,0"))
-    for (bad in listOf("NaN", "Infinity", "6.5", "invalid", "")) {
+    for (bad in listOf("NaN", "Infinity", "12.5", "invalid", "")) {
       val bands = List(SystemEqCurveBuilder.BAND_COUNT) { if (it == 0) bad else "0" }
       assertNull(SystemEqCurveBuilder.parseManual(bands.joinToString(",")))
     }

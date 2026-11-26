@@ -25,7 +25,12 @@ def published_codes(releases, track=None):
             continue
         body = release.get("body") or ""
         for match in VERSION_CODE.finditer(body):
-            yield int(match.group(1))
+            code = int(match.group(1))
+            # Untagged releases at or above the ADB base are not Shizuku builds and can never
+            # be reached by this track; counting them would exhaust the Shizuku range.
+            if track == "shizuku" and not scope and code >= ADB_BASE:
+                continue
+            yield code
         match = EXPERIMENTAL_TAG.fullmatch(tag)
         if match:
             yield LEGACY_BASE + int(match.group(1))
@@ -74,6 +79,8 @@ def self_test():
         {"tag_name": "experimental-shizuku-pr-3-run-7", "body": "Version code: 100007"},
         {"tag_name": "v2.3", "body": "Version code: 100012"},
     ]
+    assert allocate(mixed + [{"tag_name": "experimental-pr-10-run-345", "body": "Version code: 200000339"}],
+                    5, "shizuku") == 100346  # tag run 345 still counts; the 2000...339 body does not
     assert allocate(mixed, 5, "adb") == 200000007
     assert allocate(mixed, 5, "shizuku") == 100013
     assert allocate([], 1, "adb") > allocate(mixed, 10_000_000, "shizuku")

@@ -9,8 +9,9 @@ data class EqFilter(
   val kind: FilterKind, val frequency: Double, val gain: Double,
   val q: Double, val enabled: Boolean = true
 ) {
-  fun valid(): Boolean = frequency.isFinite() && frequency in 20.0..20000.0 &&
-    gain.isFinite() && gain in -12.0..12.0 && q.isFinite() && q in 0.15..12.0
+  /** [maxGainDb] is 12 for imported correction files; the graphic-EQ solver may need up to 24. */
+  fun valid(maxGainDb: Double = 24.0): Boolean = frequency.isFinite() && frequency in 20.0..20000.0 &&
+    gain.isFinite() && gain in -maxGainDb..maxGainDb && q.isFinite() && q in 0.15..12.0
 }
 data class HeadphoneProfile(
   val name: String, val preampDb: Double = 0.0,
@@ -18,7 +19,7 @@ data class HeadphoneProfile(
 ) {
   fun valid() = name.isNotBlank() && name.length<=100 &&
     preampDb.isFinite() && preampDb in -24.0..0.0 &&
-    filters.size in 1..12 && filters.all { it.valid() }
+    filters.size in 1..12 && filters.all { it.valid(12.0) }
 }
 
 /** Import the commonly exported AutoEq / Equalizer APO parametric text format. */
@@ -55,41 +56,11 @@ object AutoEqImport {
 object EqResponse {
   fun db(hz: Double, filter: EqFilter, sampleRate: Double = 48000.0): Double {
     if (!filter.enabled || filter.gain == 0.0) return 0.0
-    val f=filter.frequency.coerceIn(10.0,sampleRate*0.475)
-    val w=2.0*PI*f/sampleRate
-    val c=cos(w); val s=sin(w)
-    val a=10.0.pow(filter.gain/40.0); val alpha=s/(2.0*filter.q)
-    val root=sqrt(a)
-    var b0=1.0; var b1=0.0; var b2=0.0
-    var a0=1.0; var a1=0.0; var a2=0.0
-    when(filter.kind) {
-      FilterKind.PEAK -> {
-        b0=1+alpha*a; b1=-2*c; b2=1-alpha*a
-        a0=1+alpha/a; a1=-2*c; a2=1-alpha/a
-      }
-      FilterKind.LOW_SHELF -> {
-        val al=s*sqrt(2.0)/2.0
-        b0=a*((a+1)-(a-1)*c+2*root*al)
-        b1=2*a*((a-1)-(a+1)*c)
-        b2=a*((a+1)-(a-1)*c-2*root*al)
-        a0=(a+1)+(a-1)*c+2*root*al
-        a1=-2*((a-1)+(a+1)*c)
-        a2=(a+1)+(a-1)*c-2*root*al
-      }
-      FilterKind.HIGH_SHELF -> {
-        val al=s*sqrt(2.0)/2.0
-        b0=a*((a+1)+(a-1)*c+2*root*al)
-        b1=-2*a*((a-1)+(a+1)*c)
-        b2=a*((a+1)+(a-1)*c-2*root*al)
-        a0=(a+1)-(a-1)*c+2*root*al
-        a1=2*((a-1)-(a+1)*c)
-        a2=(a+1)-(a-1)*c-2*root*al
-      }
-    }
-    val x=2.0*PI*hz/sampleRate
-    fun magnitude(u:Double,v:Double,z:Double)=hypot(u+v*cos(x)+z*cos(2*x),
-      -v*sin(x)-z*sin(2*x))
-    return 20.0*log10(magnitude(b0,b1,b2)/magnitude(a0,a1,a2))
+    val c = com.n2k02.seq.audio.dsp.SeqBiquad.coefficients(filter, sampleRate)
+    val x = 2.0 * PI * hz / sampleRate
+    fun magnitude(u: Double, v: Double, z: Double) =
+      hypot(u + v * cos(x) + z * cos(2 * x), -v * sin(x) - z * sin(2 * x))
+    return 20.0 * log10(magnitude(c[0], c[1], c[2]) / magnitude(1.0, c[3], c[4]))
   }
   /** The three tone filters used by the native DSP; single source of truth for every path. */
   fun toneFilters(tone:Tone):List<EqFilter> = listOf(

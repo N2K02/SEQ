@@ -2,6 +2,7 @@ package com.n2k02.seq.audio.dsp
 
 import com.n2k02.seq.model.EqFilter
 import com.n2k02.seq.model.EqResponse
+import com.n2k02.seq.model.GraphicEq
 import com.n2k02.seq.model.FilterKind
 import com.n2k02.seq.model.HeadphoneProfile
 import com.n2k02.seq.model.SpatialMode
@@ -33,16 +34,10 @@ data class SeqDspInputs(
  * AutoEQ/parametric corrections run as true parametric filters here.
  */
 object SeqDspPlanner {
-  /** One-octave graphic bands. */
-  private const val GRAPHIC_Q = 1.41
-
   fun filters(i: SeqDspInputs): List<EqFilter> {
     if (i.eqBypass) return emptyList()
     val base = i.manualBands?.let { bands ->
-      val centres = SystemEqCurveBuilder.centres(SystemEqCurveBuilder.BAND_COUNT)
-      SystemEqCurveBuilder.resample(bands, SystemEqCurveBuilder.BAND_COUNT).mapIndexed { index, gain ->
-        EqFilter(FilterKind.PEAK, centres[index], gain.toDouble(), GRAPHIC_Q)
-      }
+      GraphicEq.filters(SystemEqCurveBuilder.resample(bands, SystemEqCurveBuilder.BAND_COUNT))
     } ?: EqResponse.toneFilters(i.tone)
     val correction = i.correction?.takeIf { it.valid() }?.filters.orEmpty()
     val bass = if (i.bassDb != 0f) listOf(EqFilter(FilterKind.LOW_SHELF, 110.0, i.bassDb.toDouble(), 0.7071))

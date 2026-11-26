@@ -269,4 +269,58 @@ class SeqDspChainTest {
     }
   }
 
+
+  @Test fun eqEditsGlideWithoutAnyDropout() {
+    val c = SeqDspChain(rate)
+    c.update(plan(listOf(EqFilter(FilterKind.PEAK, 1000.0, 3.0, 1.4)))); c.reset()
+    run(c, 1000.0, 0.3f, 0.2) // settle past the start fade
+    c.update(plan(listOf(EqFilter(FilterKind.PEAK, 1000.0, 9.0, 1.4),
+      EqFilter(FilterKind.LOW_SHELF, 110.0, 4.0, 0.7071))))
+    val out = run(c, 1000.0, 0.3f, 0.1)
+    // The old behaviour faded to silence for ~10 ms; a glide never drops the level.
+    var lowest = Float.MAX_VALUE
+    var i = 0
+    while (i + 96 < out.size) {
+      var peak = 0f
+      for (k in i until i + 96) peak = maxOf(peak, abs(out[k]))
+      lowest = minOf(lowest, peak)
+      i += 96
+    }
+    assertTrue("level never collapses during an EQ edit (lowest=$lowest)", lowest > 0.25f)
+    assertTrue(out.all { it.isFinite() })
+  }
+
+  @Test fun glideSettlesOnTheNewCurveAndRemovesDeletedFilters() {
+    val c = SeqDspChain(rate)
+    val boost = plan(listOf(EqFilter(FilterKind.PEAK, 1000.0, 6.0, 1.0))); c.update(boost); c.reset()
+    c.update(plan()) // remove the only filter
+    run(c, 1000.0, 0.2f, 0.3)
+    val out = run(c, 1000.0, 0.2f, 0.2)
+    assertEquals("flat again", 0.2 / sqrt(2.0), rms(out, out.size / 2), 0.002)
+  }
+
+  @Test fun limiterRespectsInterSamplePeaks() {
+    // A fs/4 tone at 45 degrees has sample peaks of 0.707 but a true peak of 1.0.
+    val c = SeqDspChain(rate)
+    val ceiling = 0.5f
+    c.update(plan(limiter = true, ceiling = ceiling)); c.reset()
+    val n = rate
+    val src = FloatArray(n * 2)
+    for (i in 0 until n) { val v = sin(2 * PI * (rate / 4.0) * i / rate + PI / 4).toFloat(); src[i * 2] = v; src[i * 2 + 1] = v }
+    c.process(src)
+    var truePeak = 0.0
+    val tail = n / 2
+    for (i in tail until n - 1) { // 8x linear-phase-ish estimate via sinc interpolation
+      for (k in 1..7) {
+        var acc = 0.0
+        for (t in -16..16) {
+          val x = t - k / 8.0
+          val w = if (x == 0.0) 1.0 else sin(PI * x) / (PI * x)
+          acc += src[(i + t).coerceIn(0, n - 1) * 2] * w
+        }
+        truePeak = maxOf(truePeak, abs(acc))
+      }
+    }
+    assertTrue("true peak $truePeak within 1 dB of the ceiling", truePeak <= ceiling * 1.12)
+  }
 }
