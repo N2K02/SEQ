@@ -11,7 +11,7 @@ import sys
 import urllib.error
 import urllib.request
 
-TAG = re.compile(r"^(?:sdcleaner-)?v?(\d+)\.(\d)$", re.I)
+TAG = re.compile(r"^(?:[a-z][a-z0-9]*-)?v?(\d+)\.(\d)$", re.I)
 EXPERIMENT = re.compile(r"^(.*?) (\d+\.\d)-experimental\.(\d+)$", re.I)
 LEGACY = re.compile(r"^experimental-pr-(\d+)-run-(\d+)$", re.I)
 MAX_PAGES = 20
@@ -23,13 +23,14 @@ def next_base(stable_tag):
     step = int(match.group(1)) * 10 + int(match.group(2)) + 1
     return f"{step // 10}.{step % 10}"
 
-STABLE_TAG = re.compile(r"^(?:sdcleaner-)?v(\d+)\.(\d)$", re.I)
+STABLE_TAG = re.compile(r"^(?:[a-z][a-z0-9]*-)?v(\d+)\.(\d)$", re.I)
 
 def latest_stable_tag(releases):
-    """Newest published release of the main channel (plain vN.N tags).
+    """Highest published stable version across all channels (vN.N, adb-vN.N, shizuku-vN.N).
 
-    GitHub's releases/latest is the newest release by date, which can be another channel's
-    stable build such as adb-v0.9 or shizuku-v1.0; those must not set this app's next version.
+    Channels share one updater and compare version names, so an experimental build must be named
+    above the newest stable of ANY channel, or installed adb-/shizuku- builds never see it as newer.
+    Non-version tags (downloads-stable) are ignored.
     """
     best = None
     for item in releases:
@@ -114,9 +115,9 @@ def tests():
         {"tag_name": "v0.7", "prerelease": False}, {"tag_name": "v0.6", "prerelease": False},
         {"tag_name": "v0.8", "prerelease": True}, {"tag_name": "v0.9", "prerelease": False, "draft": True},
         {"tag_name": "downloads-stable", "prerelease": False}]
-    assert latest_stable_tag(channel_releases) == "v0.7"
+    assert latest_stable_tag(channel_releases) == "shizuku-v1.0"
     assert latest_stable_tag([]) is None
-    assert next_base(latest_stable_tag(channel_releases)) == "0.8"
+    assert next_base(latest_stable_tag(channel_releases)) == "1.1"
     assert latest_sequence([], "VREC", "8.4", 5, 1) == 1
     releases = [{"name": "VREC 8.4-experimental.2", "tag_name": "experimental-pr-1-run-5", "prerelease": True},
                 {"name": "VREC 8.4-experimental.3", "tag_name": "experimental-pr-1-run-6", "prerelease": True},
