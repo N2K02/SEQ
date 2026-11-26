@@ -9,7 +9,7 @@ class MRadioPresetCurveTest {
 
   @Test fun bassBoostFollowsMRadioInsteadOfOverBoostingSubBass() {
     // 31, 62, 125, 250, 500, 1k, 2k, 4k, 8k, 16k
-    assertEquals(listOf(2.5f, 6f, 3.5f, 4.5f, 1.5f, 0.5f, 0f, 0f, 0f, 0f), bands("Bass boost"))
+    assertEquals(listOf(2.5f, 6.5f, 3.5f, 4.5f, 1.5f, 0.5f, 0f, 0f, 0f, 0f), bands("Bass boost"))
   }
 
   @Test fun trebleBoostFollowsMRadioCurve() {

@@ -19,7 +19,10 @@ import kotlin.math.sqrt
  * Returns normalised b0, b1, b2, a1, a2.
  */
 object SeqBiquad {
-  fun coefficients(filter: EqFilter, sampleRate: Int): DoubleArray {
+  fun coefficients(filter: EqFilter, sampleRate: Int): DoubleArray =
+    coefficients(filter, sampleRate.toDouble())
+
+  fun coefficients(filter: EqFilter, sampleRate: Double): DoubleArray {
     if (!filter.enabled || filter.gain == 0.0) return doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0)
     val f = filter.frequency.coerceIn(10.0, sampleRate * 0.475)
     val w = 2.0 * PI * f / sampleRate
@@ -28,7 +31,8 @@ object SeqBiquad {
     val a = 10.0.pow(filter.gain / 40.0)
     val alpha = s / (2.0 * filter.q)
     val root = sqrt(a)
-    val al = s * sqrt(2.0) / 2.0
+    // RBJ shelf with a real Q: AutoEQ LSC/HSC filters carry their own Q (1/√2 gives slope 1).
+    val al = alpha
     val b0: Double; val b1: Double; val b2: Double
     val a0: Double; val a1: Double; val a2: Double
     when (filter.kind) {
@@ -101,6 +105,8 @@ class SeqDspChain(val sampleRate: Int) {
   companion object {
     const val MAX_FILTERS = 24
     private const val FADE_SECONDS = 0.05
+    private const val GLIDE_BLOCK = 32
+    private const val GLIDE_RATE = 0.25
   }
   init { require(sampleRate in 8000..192000) }
 
@@ -119,6 +125,12 @@ class SeqDspChain(val sampleRate: Int) {
     pending = next
   }
   val current: SeqDspPlan get() = pending
+
+  // Coefficients currently in use. An EQ edit glides to the new set (convex in the stability
+  // triangle, so every intermediate filter is stable) instead of muting and restarting the filters.
+  private val live = DoubleArray(MAX_FILTERS * 5).also { identity(it, 0) }
+  private var liveCount = 0
+  private var gliding = false
 
   // Biquad state (direct form I in double precision for low-frequency accuracy).
   private val x1 = DoubleArray(MAX_FILTERS * 2)
@@ -159,6 +171,11 @@ class SeqDspChain(val sampleRate: Int) {
   private var delayIndex = 0
   private var peakEnv = 0f
   private var peakHold = 0
+  // Last eight input samples per channel: an 8-point interpolator estimates the inter-sample
+  // (true) peak between the two middle samples, within ~0.2 dB up to fs/4.
+  private val histL = FloatArray(8)
+  private val histR = FloatArray(8)
+  private var histIndex = 0
   private var limGain = 1f
   private val limAttack = (1.0 - exp(-4.6 / lookahead)).toFloat()
   private val limRelease = (1.0 - exp(-1.0 / (0.08 * sampleRate))).toFloat()
@@ -181,7 +198,56 @@ class SeqDspChain(val sampleRate: Int) {
     fade = 0f
     gain = pending.preGain
     plan = pending
+    snapCoefficients(plan)
     transitionGain = 1f
+    histL.fill(0f); histR.fill(0f); histIndex = 0
+  }
+
+  private fun identity(c: DoubleArray, index: Int) {
+    val k = index * 5
+    c[k] = 1.0; c[k + 1] = 0.0; c[k + 2] = 0.0; c[k + 3] = 0.0; c[k + 4] = 0.0
+  }
+
+  private fun snapCoefficients(p: SeqDspPlan) {
+    p.coefficients.copyInto(live, 0, 0, p.filterCount * 5)
+    for (i in p.filterCount until MAX_FILTERS) identity(live, i)
+    liveCount = p.filterCount
+    gliding = false
+  }
+
+  /** Only the EQ curve (and headroom) changed: no topology, spatial or dynamics change. */
+  private fun canGlide(a: SeqDspPlan, b: SeqDspPlan): Boolean =
+    !a.coefficients.contentEquals(b.coefficients) &&
+      a.spatial == b.spatial && a.spatialStrength == b.spatialStrength &&
+      a.compressor == b.compressor && a.compressorRatio == b.compressorRatio &&
+      a.compressorThresholdDb == b.compressorThresholdDb && a.limiter == b.limiter &&
+      a.ceiling == b.ceiling && a.leveler == b.leveler
+
+  private fun adoptWithGlide(next: SeqDspPlan) {
+    plan = next
+    gliding = true
+    liveCount = maxOf(liveCount, next.filterCount)
+  }
+
+  private fun stepGlide(p: SeqDspPlan) {
+    var settled = true
+    for (i in 0 until liveCount) {
+      for (j in 0 until 5) {
+        val k = i * 5 + j
+        val target = if (i < p.filterCount) p.coefficients[k]
+          else if (j == 0) 1.0 else 0.0
+        val d = target - live[k]
+        if (abs(d) > 1e-10) { live[k] += d * GLIDE_RATE; settled = false } else live[k] = target
+      }
+    }
+    if (settled) {
+      for (i in p.filterCount until liveCount) {
+        x1[i * 2] = 0.0; x2[i * 2] = 0.0; y1[i * 2] = 0.0; y2[i * 2] = 0.0
+        x1[i * 2 + 1] = 0.0; x2[i * 2 + 1] = 0.0; y1[i * 2 + 1] = 0.0; y2[i * 2 + 1] = 0.0
+      }
+      liveCount = p.filterCount
+      gliding = false
+    }
   }
 
   init { reset() }
@@ -195,6 +261,7 @@ class SeqDspChain(val sampleRate: Int) {
     var remaining = frames
     while (remaining > 0) {
       val requested = pending
+      if (requested !== plan && transitionGain >= 1f && canGlide(plan, requested)) adoptWithGlide(requested)
       val fadingOut = requested !== plan && transitionGain > 0f
       val untilSwap = if (fadingOut) kotlin.math.ceil((transitionGain / transitionStep).toDouble()).toInt().coerceAtLeast(1)
         else remaining
@@ -229,6 +296,8 @@ class SeqDspChain(val sampleRate: Int) {
         peakEnv = 0f; peakHold = 0; limGain = 1f
       }
       plan = p
+      snapCoefficients(p)
+      histL.fill(0f); histR.fill(0f); histIndex = 0
     }
     gainAndFade(buffer, offset, frames, p.preGain)
     equalize(buffer, offset, frames, p)
@@ -263,8 +332,22 @@ class SeqDspChain(val sampleRate: Int) {
   }
 
   private fun equalize(b: FloatArray, offset: Int, frames: Int, p: SeqDspPlan) {
-    val c = p.coefficients
-    for (filter in 0 until p.filterCount) {
+    if (!gliding) {
+      runFilters(b, offset, frames)
+      return
+    }
+    var done = 0
+    while (done < frames) {
+      val n = minOf(GLIDE_BLOCK, frames - done)
+      if (gliding) stepGlide(p)
+      runFilters(b, offset + done * 2, n)
+      done += n
+    }
+  }
+
+  private fun runFilters(b: FloatArray, offset: Int, frames: Int) {
+    val c = live
+    for (filter in 0 until liveCount) {
       val k = filter * 5
       val b0 = c[k]; val b1 = c[k + 1]; val b2 = c[k + 2]; val a1 = c[k + 3]; val a2 = c[k + 4]
       for (ch in 0..1) {
@@ -377,6 +460,12 @@ class SeqDspChain(val sampleRate: Int) {
     levelGain = g
   }
 
+  /** Value halfway between the two middle samples of the 8 most recent (oldest at [start]). */
+  private fun interSamplePeak(h: FloatArray, start: Int): Float =
+    (-5f * (h[start] + h[(start + 7) and 7]) + 49f * (h[(start + 1) and 7] + h[(start + 6) and 7]) -
+      245f * (h[(start + 2) and 7] + h[(start + 5) and 7]) +
+      1225f * (h[(start + 3) and 7] + h[(start + 4) and 7])) * (1f / 2048f)
+
   private fun limit(b: FloatArray, offset: Int, frames: Int, p: SeqDspPlan) {
     val ceiling = p.ceiling
     var peak = 0f
@@ -388,7 +477,11 @@ class SeqDspChain(val sampleRate: Int) {
       var outL: Float
       var outR: Float
       if (p.limiter) {
-        val level = maxOf(abs(inL), abs(inR))
+        histL[histIndex] = inL; histR[histIndex] = inR
+        histIndex = (histIndex + 1) and 7
+        val midL = interSamplePeak(histL, histIndex)
+        val midR = interSamplePeak(histR, histIndex)
+        val level = maxOf(maxOf(abs(inL), abs(inR)), maxOf(abs(midL), abs(midR)))
         if (level >= peakEnv) { peakEnv = level; peakHold = lookahead }
         else if (peakHold > 0) peakHold--
         else peakEnv = maxOf(level, peakEnv * peakRelease)

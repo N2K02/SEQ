@@ -14,6 +14,9 @@ SEQ is a battery-conscious experimental sound engine, with a minimal neutral Mat
 
 Both channels use the same **R8-minified release APK**. `main` publishes stable releases; the single experimental branch publishes prereleases. Both require the **same SEQ-specific persistent signing identity**; a mismatched or missing signing secret prevents release publication. See [Release pipeline and one-time signing setup](docs/RELEASE_PIPELINE.md) and [Architecture](docs/ARCHITECTURE.md).
 
+## Equalizer
+The 10-band equalizer (±12 dB) shows and renders the real combined response: filter gains are solved so every slider value is what you hear, EQ edits glide without dropouts, shelf Q is honoured, and the limiter sees inter-sample peaks. See [Equalizer redesign](docs/EQUALIZER_REDESIGN_2026_11_26.md).
+
 ## Direct ADB setup
 1. If VRec has already enabled TCP/5555 on the device, open SEQ → Settings → Diagnostics and check port 5555. Authorize SEQ's separate ADB identity when Android prompts. VRec's own private key cannot be shared between app sandboxes.
 2. If TCP/5555 is unavailable, enable Wireless debugging in Developer options, open *Pair device with pairing code*, enter the displayed six-digit code and pairing port in SEQ Diagnostics. After pairing, enter the **connection** port from the Wireless debugging page and run Verify. These two ports differ.
