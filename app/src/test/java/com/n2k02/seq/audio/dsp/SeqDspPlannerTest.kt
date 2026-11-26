@@ -26,8 +26,15 @@ class SeqDspPlannerTest {
   @Test fun graphicBandsBecomeTrueParametricFilters() {
     val bands = List(10) { if (it == 5) 6f else 0f }
     val i = inputs(manual = bands, peakGuard = false)
-    assertEquals(1, SeqDspPlanner.filters(i).size)
-    assertEquals(1000.0, SeqDspPlanner.filters(i).single().frequency, 1.0)
+    // Neighbouring one-octave bands overlap, so the solver also trims them: the *response*
+    // at each centre still equals its slider (+6 dB at 1 kHz, flat elsewhere).
+    val filters = SeqDspPlanner.filters(i)
+    assertTrue(filters.size > 1 && filters.all { it.valid() })
+    val centres = com.n2k02.seq.model.SystemEqCurveBuilder.centres(10)
+    centres.forEachIndexed { index, hz ->
+      val db = filters.sumOf { com.n2k02.seq.model.EqResponse.db(hz, it) }
+      assertEquals("band $index", bands[index].toDouble(), db, 0.15)
+    }
     val plan = SeqDspPlanner.plan(48000, i)
     assertEquals(-6.5, db(plan.preGain), 0.1) // full headroom without limiter
     val limited = SeqDspPlanner.plan(48000, i.copy(peakGuard = true))

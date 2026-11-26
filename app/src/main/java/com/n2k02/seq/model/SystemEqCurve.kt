@@ -58,7 +58,7 @@ object SystemEqCurveBuilder {
     return SystemEqCurve(minOf(curve.inputGainDb, -peak), bands)
   }
 
-  const val MANUAL_LIMIT_DB = 6f
+  const val MANUAL_LIMIT_DB = 12f
 
   const val COMPACT_BAND_COUNT = BAND_COUNT
   private val compactCentres = listOf(31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
