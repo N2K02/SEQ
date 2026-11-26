@@ -12,7 +12,7 @@ class MRadioSoundTest {
       val bands = MRadioPresets.bands(name)
       assertNotNull(name, bands)
       assertEquals(name, 10, bands!!.size)
-      assertTrue(name, bands.all { it.isFinite() && it in -6f..6f })
+      assertTrue(name, bands.all { it.isFinite() && it in -SystemEqCurveBuilder.MANUAL_LIMIT_DB..SystemEqCurveBuilder.MANUAL_LIMIT_DB })
       assertEquals(name, name, MRadioPresets.matching(bands))
       assertEquals(name, 10, SystemEqCurveBuilder.manual(bands).bands.size)
     }
