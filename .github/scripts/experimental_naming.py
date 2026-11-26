@@ -23,6 +23,26 @@ def next_base(stable_tag):
     step = int(match.group(1)) * 10 + int(match.group(2)) + 1
     return f"{step // 10}.{step % 10}"
 
+STABLE_TAG = re.compile(r"^(?:sdcleaner-)?v(\d+)\.(\d)$", re.I)
+
+def latest_stable_tag(releases):
+    """Newest published release of the main channel (plain vN.N tags).
+
+    GitHub's releases/latest is the newest release by date, which can be another channel's
+    stable build such as adb-v0.9 or shizuku-v1.0; those must not set this app's next version.
+    """
+    best = None
+    for item in releases:
+        if not isinstance(item, dict) or item.get("draft") or item.get("prerelease"):
+            continue
+        tag = item.get("tag_name") or ""
+        match = STABLE_TAG.fullmatch(tag)
+        if match:
+            key = (int(match.group(1)), int(match.group(2)))
+            if best is None or key > best[0]:
+                best = (key, tag)
+    return best[1] if best else None
+
 def latest_sequence(releases, app, base, run, pr):
     current = 0
     existing = None
@@ -63,8 +83,6 @@ def naming(repo, app, run, pr):
         raise ValueError("invalid app name")
     if not 0 < run < 2_000_000_000 or not 0 < pr < 2_000_000_000:
         raise ValueError("invalid GitHub run or PR number")
-    latest = api(repo, "releases/latest")
-    base = next_base(latest["tag_name"]) if latest else "1.0"
     releases = []
     for page in range(1, MAX_PAGES + 1):
         batch = api(repo, f"releases?per_page=100&page={page}")
@@ -75,6 +93,8 @@ def naming(repo, app, run, pr):
             break
     else:
         raise ValueError("too many releases to safely calculate experimental sequence")
+    stable = latest_stable_tag(releases)
+    base = next_base(stable) if stable else "1.0"
     sequence = latest_sequence(releases, app, base, run, pr)
     if sequence > 99999:
         raise ValueError("experimental sequence exhausted")
@@ -89,6 +109,14 @@ def naming(repo, app, run, pr):
 def tests():
     assert next_base("v8.3") == "8.4"
     assert next_base("sdcleaner-v2.9") == "3.0"
+    channel_releases = [
+        {"tag_name": "adb-v0.9", "prerelease": False}, {"tag_name": "shizuku-v1.0", "prerelease": False},
+        {"tag_name": "v0.7", "prerelease": False}, {"tag_name": "v0.6", "prerelease": False},
+        {"tag_name": "v0.8", "prerelease": True}, {"tag_name": "v0.9", "prerelease": False, "draft": True},
+        {"tag_name": "downloads-stable", "prerelease": False}]
+    assert latest_stable_tag(channel_releases) == "v0.7"
+    assert latest_stable_tag([]) is None
+    assert next_base(latest_stable_tag(channel_releases)) == "0.8"
     assert latest_sequence([], "VREC", "8.4", 5, 1) == 1
     releases = [{"name": "VREC 8.4-experimental.2", "tag_name": "experimental-pr-1-run-5", "prerelease": True},
                 {"name": "VREC 8.4-experimental.3", "tag_name": "experimental-pr-1-run-6", "prerelease": True},
