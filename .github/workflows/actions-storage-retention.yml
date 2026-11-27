@@ -129,8 +129,14 @@ jobs:
               catch(e){if(![404,409,422,500,502,503,504].includes(e.status))throw e;core.warning(id+' skipped: '+e.status);return false;}
               finally{await wait();}
             };
+            // SEQ's validated APK bundle is only a handoff between validation and signing.
+            // Drop it after a successful run with a matching signed published APK.
+            const successfulRuns=new Set(runs.filter(r=>r.status==='completed'&&r.conclusion==='success').map(r=>r.id));
+            const publishedNames=new Set(releases.filter(r=>!r.draft).flatMap(r=>(r.assets||[]).filter(a=>a.state==='uploaded'&&a.size>0&&/^sha256:[a-f0-9]{64}$/.test(a.digest||'')&&a.name.endsWith('.apk')).map(a=>a.name)));
+            const signedRuns=new Set(artifacts.filter(a=>!a.expired&&publishedNames.has(a.name)&&successfulRuns.has(a.workflow_run?.id)).map(a=>a.workflow_run.id));
             for(const a of artifacts){
-              if(!obsolete.has(a.workflow_run?.id)||removedArtifacts>=1000)continue;
+              const intermediate=a.name==='SEQ-validated-apks'&&signedRuns.has(a.workflow_run?.id);
+              if((!obsolete.has(a.workflow_run?.id)&&!intermediate)||removedArtifacts>=1000)continue;
               if(await remove(()=>github.rest.actions.deleteArtifact({owner,repo,artifact_id:a.id}),'artifact '+a.id)){removedArtifacts++;bytes+=a.size_in_bytes||0;}
             }
             const activeBuild=runs.some(r=>r.id!==context.runId&&r.status!=='completed'&&/build|apk|ci|release/i.test(r.name+' '+r.path));
