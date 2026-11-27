@@ -161,7 +161,7 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   publish:
     name: Sign and publish stable or experimental (shared mRadio key)
