@@ -4,13 +4,141 @@ on:
   push:
     branches: [main]
     paths: ['.github/workflows/apk-retention.yml']
+  workflow_run:
+    workflows: [SEQ Build APK (mRadio parity)]
+    types: [completed]
   schedule:
     - cron: '23,53 * * * *'
   workflow_dispatch:
+
+concurrency:
+  group: seq-visible-release-apks
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
   downloads:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     uses: N2K02/n2k02updater/.github/workflows/group-downloads.yml@67eb7a2a1e817f7b48b88910e8492c924737ba7e
+
+  visible-assets:
+    needs: downloads
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Attach the matching channel APK to each current architecture release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          from tempfile import TemporaryDirectory
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          root = f"https://github.com/{repo}/releases/download"
+          dry_run = os.environ.get("SEQ_ASSET_DRY_RUN") == "1"
+
+          def gh(*args):
+              return subprocess.check_output(["gh", *args], text=True)
+
+          def select(releases):
+              current = {}
+              for release in releases:
+                  if release["draft"]:
+                      continue
+                  tag = release["tag_name"]
+                  channel = "experimental" if release["prerelease"] else "stable"
+                  if channel == "experimental":
+                      match = re.fullmatch(r"experimental-(adb|shizuku)-pr-\d+-run-\d+", tag)
+                      version = r"\d+\.\d+-experimental\.\d+"
+                  else:
+                      match = re.fullmatch(r"(adb|shizuku)-v(\d+\.\d+)", tag)
+                      version = re.escape(match[2]) if match else ""
+                  codes = re.findall(r"(?im)^Version code:[ 	]*(\d+)[ 	]*$", release.get("body") or "")
+                  if not match or len(codes) != 1 or int(codes[0]) <= 0:
+                      continue
+                  track = match[1]
+                  assets = [
+                      item for item in release["assets"]
+                      if re.fullmatch(rf"SEQ-{track.upper()}-{version}\.apk", item["name"])
+                      and item["browser_download_url"] == f"{root}/{tag}/{item['name']}"
+                      and item["state"] == "uploaded"
+                      and item["size"] > 0
+                      and re.fullmatch(r"sha256:[a-f0-9]{64}", item.get("digest") or "")
+                  ]
+                  key = channel, track
+                  if len(assets) == 1 and int(codes[0]) > current.get(key, (0,))[0]:
+                      current[key] = int(codes[0]), release, assets[0]
+              return current
+
+          def attach(destination, source, apk, other_track):
+              name, digest = apk["name"], apk["digest"]
+              target = destination["tag_name"]
+              for item in destination["assets"]:
+                  if item["name"] == name:
+                      if item.get("digest") != digest or item["state"] != "uploaded":
+                          raise RuntimeError(f"Existing asset does not match the signed source: {target}/{name}")
+                      return
+              # A versioned card keeps the pair that was current when it was
+              # populated. Future builds get their own pair on a new card.
+              if any(item["name"].startswith(f"SEQ-{other_track.upper()}-")
+                     and item["name"].endswith(".apk") for item in destination["assets"]):
+                  return
+              print(f"{source['tag_name']}/{name} -> {target}", flush=True)
+              if dry_run:
+                  return
+              with TemporaryDirectory() as work:
+                  gh("release", "download", source["tag_name"], "--repo", repo,
+                     "--pattern", name, "--dir", work)
+                  path = Path(work, name)
+                  with path.open("rb") as handle:
+                      actual = "sha256:" + hashlib.file_digest(handle, "sha256").hexdigest()
+                  if actual != digest or path.stat().st_size != apk["size"]:
+                      raise RuntimeError(f"Downloaded asset does not match the signed source: {name}")
+                  gh("release", "upload", target, str(path), "--repo", repo)
+              updated = json.loads(gh("api", f"repos/{repo}/releases/{destination['id']}"))
+              if not any(item["name"] == name and item.get("digest") == digest
+                         and item["state"] == "uploaded" for item in updated["assets"]):
+                  raise RuntimeError(f"Could not verify the uploaded APK: {target}/{name}")
+
+          pages = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repo}/releases?per_page=100"))
+          current = select(item for page in pages for item in page)
+          for channel in ("stable", "experimental"):
+              adb = current.get((channel, "adb"))
+              shizuku = current.get((channel, "shizuku"))
+              if adb and shizuku:
+                  attach(adb[1], shizuku[1], shizuku[2], "shizuku")
+                  attach(shizuku[1], adb[1], adb[2], "adb")
+          PYTHON
+
+  remove-stray-releases:
+    # One-time cleanup, runs when this workflow file is merged (or run by hand). Removes the two
+    # main-line experimental builds that do not belong to either track (ADB or Shizuku).
+    # Idempotent: a missing release is skipped.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Delete stray main-line experimental releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tag in experimental-pr-10-run-344 experimental-pr-10-run-345; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+              echo "Deleted $tag"
+            else
+              echo "$tag already removed"
+            fi
+          done
